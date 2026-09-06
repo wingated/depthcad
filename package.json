@@ -1,0 +1,12 @@
+{
+  "name": "depthcad",
+  "version": "0.1.0",
+  "description": "Browser-based layer compositor for building grayscale depth maps for laser engraving",
+  "private": true,
+  "scripts": {
+    "test": "node tests/smoke.js"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^23.0.0"
+  }
+}
