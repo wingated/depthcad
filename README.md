@@ -27,6 +27,8 @@ Making a good engraving depth map usually means combining several pieces of 3D i
 * **Image layers**: import 8- or 16-bit PNG (or JPEG) depth maps; drag and drop works. The PNG codec is built in, so 16-bit data is never squashed to 8 bits by the browser.
 * **Shape layers**: rectangles (optional corner radius) and ellipses, with an *inner* ratio to make rings and frames. Height profiles: flat, linear (cone), dome (a ring with the dome profile is a torus), cosine, and bevel (a ramp of a fixed number of pixels). Each shape has a low and high value.
 * **Text layers**: any installed font, or a loaded `.ttf`/`.otf`/`.woff` file that is embedded in the project. Weight, italic, size, line height, letter spacing, alignment. The font menu previews every family in its own face.
+* **Mesh layers**: import an STL or OBJ and take an orthographic depth "screenshot" of it. The import dialog shows the depth result live next to an orbitable 3D view with the bake box and the near/far clipping planes; rotate with view-from and 90° buttons, numeric angles, or by dragging the depth image; set the clipping range on a depth histogram, by dragging the planes, or with presets (farthest geometry, farthest visible, nearest visible); choose the resolution. The bake is 16-bit with supersampled edges, and the layer can be re-baked later.
+* **Tool layers**: parametric generators defined as small JSON documents (a parameter schema plus a JavaScript render function) that run in a Worker. Three ship as examples: a ring of stars, a noise texture, and text on an arc. Tools you import or write live in "My tools"; the ones a project uses are saved inside it.
 
 **Compositing**
 
@@ -42,6 +44,11 @@ Making a good engraving depth map usually means combining several pieces of 3D i
 * Unlimited undo/redo, layer reordering by drag, including into and out of groups.
 * Interactive preview at a chosen resolution (export is always full resolution).
 * Cursor readout of the composite value under the mouse.
+
+**Assistant (optional)**
+
+* The ✦ button in the lower right opens a chat drawer. Bring your own API key for Anthropic, OpenAI, or Google; keys are stored only in your browser and sent only to that provider.
+* The assistant sees the document, edits it through the same command API as the UI, and can write new tools when the built-in kinds cannot express what you ask for ("a ring of twelve raised stars around the statue"). Every reply is undoable in one click.
 
 **3D view**
 
@@ -91,8 +98,9 @@ The **?** button in the toolbar shows the same reference inside the app.
 | ![](examples/christus-medallion.png) | **[christus-medallion](examples/christus-medallion.dcad.json)**: a scanned relief on a flat base plate, clipped by a feathered circular mask (a mask node in a group), with a torus ring and two text captions. |
 | ![](examples/terrain-coaster.png) | **[terrain-coaster](examples/terrain-coaster.dcad.json)**: a bevelled rounded-rect base, a terrain with a Levels modifier clipped to a circle, a rim, a group with a Curve modifier, a Clamp layer that flattens the peaks, and a label engraved with Cut mode. |
 | ![](examples/shapes-primer.png) | **[shapes-primer](examples/shapes-primer.dcad.json)**: one of everything. Every profile, a frame, a torus, Clamp and Cut layers, an inverted image with a mask, rotated text. |
+| ![](examples/tool-showcase.png) | **[tool-showcase](examples/tool-showcase.dcad.json)**: the three example tools at work. A hammered noise plate, a ring of stars and text on an arc around the masked relief. |
 
-The example images live in `examples/assets/`. The Christus relief is included at 1024 px for size.
+The example images live in `examples/assets/`; the example tools are in `examples/tools/` (import them from the Tools menu). The Christus relief is included at 1024 px for size.
 
 ## LightBurn notes
 
@@ -124,24 +132,45 @@ A project is JSON with a node tree:
 
 Every node has `x`/`y` (centre, document pixels), `sx`/`sy` (scale of the natural size: image pixels or measured text box), `rot`, `lockAspect`, `blend`, `modifiers`, and kind-specific `params`. Shapes and masks store their size in `params.w`/`params.h`. Depth values are normalized floats in 0–1. Version 1 files (flat layer list, 0–255 values) are migrated on load.
 
+## Tool format
+
+A tool is a JSON file:
+
+```jsonc
+{
+  "format": "depthcad-tool/1", "id": "star-ring", "name": "Ring of stars", "version": 1,
+  "description": "N stars on a circle.",
+  "schema": {                     // generates the properties panel
+    "count":  { "type": "int",    "label": "Stars", "default": 12, "min": 1, "max": 200, "slider": true },
+    "radius": { "type": "number", "label": "Ring radius (px)", "default": 300, "min": 1, "max": 4000 },
+    "high":   { "type": "depth",  "label": "Height", "default": 1 }
+  },
+  "measure": "return { w: 2 * (p.radius + 60), h: 2 * (p.radius + 60) };",   // natural size in local px
+  "render":  "lib.each((u, v) => { ... return [height, coverage]; });"        // fills the raster
+}
+```
+
+`render` runs as `(p, r, lib)` in a Worker: `p` are the parameters, `r` is the raster to fill (`w`, `h`, `height`, `coverage` as Float32Arrays in 0–1, `scale` pixels per local unit), and `lib` provides signed-distance primitives (`circle`, `box`, `ring`, `polygon`, `star`, `segment`, boolean ops), `aa()` for antialiased coverage, height `profile()`s, `noise2`/`fbm`, per-pixel iteration with `each()`, union compositing with `add()`, and a Canvas 2D context in local units (`canvas()`/`fromCanvas()`) for text and paths. Parameter types are `number`, `int`, `bool`, `enum`, `depth`, `text`, `string`. Tool layers transform, mask, blend and take modifiers like any other layer.
+
 ## Architecture
 
 The source lives in `src/` as ES modules and `build.js` bundles them into the single-file `depthcad.html`:
 
 * `engine/`: DOM-free core. `raster.js` (Float32 height + coverage rasters, blending), `transform.js` (boxes, resampling), `sdf.js` (shape distance fields and profiles), `modifiers.js`, `composite.js` (the tree compositor: groups, sibling masks, caching), `png.js` (8/16-bit codec), `dither.js`, `kinds.js` (node kind registry).
-* `kinds/`: one file per node kind (`image`, `shape`, `text`, `mask`, `group`). A kind provides a parameter schema, `measure` and `render`; everything else (transform, blend, masks, modifiers, caching, undo, serialization) is shared, so a new kind is a small file and gets a generated properties panel.
+* `kinds/`: one file per node kind (`image`, `shape`, `text`, `mask`, `group`, `mesh`, `tool`). A kind provides a parameter schema, `measure` and `render` (or `renderAsync` for Worker-backed kinds); everything else (transform, blend, masks, modifiers, caching, undo, serialization) is shared, so a new kind is a small file and gets a generated properties panel.
+* `engine/mesh.js`, `engine/meshbake.js`: STL/OBJ parsing and the WebGL2 orthographic depth baker. `engine/toolkit.js`: the helper library given to tools.
 * `app/`: `state.js` (document, tree helpers, serialization, v1 migration, display units), `commands.js` (every mutation, the API that the UI, tests and future extension tools use), `history.js` (undo), `render.js` (preview scheduling), `io.js` (import, export, autosave).
-* `ui/`: canvas editor, layer tree, schema-driven properties panel, font picker, 3D view, dialogs.
+* `ui/`: canvas editor, layer tree, schema-driven properties panel, font picker, 3D view, dialogs, the mesh import dialog, the Tools menu and editor, and the assistant drawer with its provider adapters.
 
-See [docs/DESIGN.md](docs/DESIGN.md) for the roadmap: mesh (STL/OBJ) import, extension tools and the optional AI agent.
+See [docs/DESIGN.md](docs/DESIGN.md) for the architecture notes behind this.
 
 ## Development
 
 ```bash
 npm install          # puppeteer-core for the browser test (uses your installed Chrome)
 npm run build        # bundles src/ into depthcad.html
-npm run test:unit    # engine unit tests in Node (no browser)
-npm run test:smoke   # drives the built app in headless Chrome
+npm run test:unit    # engine, mesh and toolkit unit tests in Node (no browser)
+npm run test:smoke   # drives the built app in headless Chrome: core, mesh import, tools and agent
 npm test             # both
 node tests/gen-examples.js   # regenerates the example projects and screenshots
 ```
@@ -150,9 +179,9 @@ Edit files under `src/`, rebuild, reload. The built `depthcad.html` is committed
 
 ## Roadmap
 
-* Mesh import: render an STL or OBJ orthographically into a 16-bit layer with interactive orientation and clipping planes.
-* Extension tools: JSON-defined layer generators with generated mini-UIs, shareable as files, and an optional AI assistant that writes them.
-* Text along a circular path (inside and outside).
+* Built-in text on a path as a text layout (the `text-arc` tool covers the common case today).
+* Group transforms (rotate a group as a unit) and image edge profiles.
+* Tool packs: sharing sets of tools as one file.
 
 ## License
 

@@ -5,9 +5,10 @@
   "private": true,
   "scripts": {
     "build": "node build.js",
-    "test": "node --test tests/engine.test.js && node tests/smoke.js",
-    "test:unit": "node --test tests/engine.test.js",
-    "test:smoke": "node tests/smoke.js"
+    "test": "npm run test:unit && npm run test:smoke",
+    "test:unit": "node --test tests/engine.test.js tests/mesh.test.js tests/toolkit.test.js",
+    "test:smoke": "node tests/smoke.js && node tests/smoke-mesh.js && node tests/smoke-tools.js",
+    "examples": "node tests/gen-examples.js"
   },
   "devDependencies": {
     "puppeteer-core": "^23.0.0"

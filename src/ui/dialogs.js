@@ -4,7 +4,10 @@ import * as cmd from '../app/commands.js';
 import { exportPNG } from '../app/io.js';
 import { $, el, btn, setMsg } from './dom.js';
 
-export function openModal(title, body, buttons = []) {
+let onCloseCb = null;
+export function openModal(title, body, buttons = [], onClose = null) {
+  if (onCloseCb) { const f = onCloseCb; onCloseCb = null; f(); }
+  onCloseCb = onClose;
   const m = $('#modal'); const box = $('#modalBox'); box.innerHTML = '';
   box.appendChild(el('h3', null, title)); box.appendChild(body);
   const row = el('div', 'btnrow'); row.style.justifyContent = 'flex-end';
@@ -12,7 +15,7 @@ export function openModal(title, body, buttons = []) {
   m.classList.add('on');
   return { close: closeModal };
 }
-export function closeModal() { $('#modal').classList.remove('on'); }
+export function closeModal() { $('#modal').classList.remove('on'); if (onCloseCb) { const f = onCloseCb; onCloseCb = null; f(); } }
 export function initDialogs() { $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); }); }
 
 function field(label, input) { const r = el('div', 'row'); const l = el('label', null, label); l.style.width = '120px'; r.append(l, input); return r; }
@@ -58,7 +61,7 @@ export function helpDialog() {
 
 <b>Modifiers</b> (Levels, Curve, Clamp, Feather, Blur, Offset) are applied per layer, in order. A modifier on a group acts on everything in it.
 
-<b>Canvas</b>: drag a layer to move it, drag handles to scale (<kbd>Shift</kbd> toggles the aspect lock, <kbd>Alt</kbd> scales about the centre), drag the round handle to rotate (<kbd>Shift</kbd> snaps to 15°). <kbd>Shift</kbd>-click adds to the selection. Wheel or pinch to zoom, drag empty space or hold <kbd>Space</kbd> to pan, arrow keys nudge (<kbd>Shift</kbd> = 10 px).
+<b>Canvas</b>: drag a layer to move it, drag handles to scale (<kbd>Shift</kbd> toggles the aspect lock, <kbd>Alt</kbd> scales about the centre), drag the round handle to rotate (<kbd>Shift</kbd> snaps to 15°). <kbd>Shift</kbd>-click adds to the selection; drag on empty space for a marquee. Moving snaps to the document and to other layers (hold <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> to disable). Wheel or pinch to zoom, hold <kbd>Space</kbd> or use the middle/right button to pan, arrow keys nudge (<kbd>Shift</kbd> = 10 px).
 
 <b>Shortcuts</b>: <kbd>Ctrl+Z</kbd>/<kbd>Ctrl+Shift+Z</kbd> undo/redo, <kbd>Ctrl+C</kbd>/<kbd>Ctrl+V</kbd> copy/paste, <kbd>Ctrl+D</kbd> duplicate, <kbd>Ctrl+G</kbd>/<kbd>Ctrl+Shift+G</kbd> group/ungroup, <kbd>Del</kbd> delete, <kbd>Ctrl+A</kbd> select all, <kbd>Ctrl+S</kbd> save, <kbd>Ctrl+O</kbd> open, <kbd>Ctrl+E</kbd> export, <kbd>F</kbd> fit, <kbd>1</kbd> 100%, <kbd>Esc</kbd> deselect.
 

@@ -1,0 +1,63 @@
+{
+  "format": "depthcad-tool/1",
+  "id": "noise-texture",
+  "name": "Noise texture",
+  "version": 1,
+  "description": "A rectangle filled with fractal noise, for hammered or stone textures.",
+  "schema": {
+    "w": {
+      "type": "number",
+      "label": "Width (px)",
+      "default": 600,
+      "min": 1,
+      "max": 8192,
+      "step": 1
+    },
+    "h": {
+      "type": "number",
+      "label": "Height (px)",
+      "default": 400,
+      "min": 1,
+      "max": 8192,
+      "step": 1
+    },
+    "cell": {
+      "type": "number",
+      "label": "Feature size (px)",
+      "default": 60,
+      "min": 2,
+      "max": 2000,
+      "step": 1,
+      "slider": true
+    },
+    "octaves": {
+      "type": "int",
+      "label": "Detail (octaves)",
+      "default": 4,
+      "min": 1,
+      "max": 8,
+      "step": 1,
+      "slider": true
+    },
+    "low": {
+      "type": "depth",
+      "label": "Low",
+      "default": 0.2
+    },
+    "high": {
+      "type": "depth",
+      "label": "High",
+      "default": 0.6
+    },
+    "seed": {
+      "type": "number",
+      "label": "Seed",
+      "default": 0,
+      "min": 0,
+      "max": 1000,
+      "step": 1
+    }
+  },
+  "measure": "return { w: p.w, h: p.h };",
+  "render": "lib.each((u, v) => {\n  const n = lib.fbm((u + p.seed * 1000) / p.cell, (v + p.seed * 700) / p.cell, p.octaves);\n  return p.low + (p.high - p.low) * n;\n});"
+}

@@ -3,7 +3,7 @@ import { state, findNode, visibleLeaves, selectedNodes, primarySelected, fmtDept
 import * as cmd from '../app/commands.js';
 import { commit } from '../app/history.js';
 import { getComposite, onComposite, onFrame, invalidate, valueAt } from '../app/render.js';
-import { boxCorners, boxPoint, boxContains, DEG } from '../engine/transform.js';
+import { boxCorners, boxPoint, boxContains, boxAABB, unionAABB, DEG } from '../engine/transform.js';
 import { KINDS } from '../engine/kinds.js';
 import { $ } from './dom.js';
 
@@ -55,6 +55,8 @@ function drawView() {
   const v = state.view;
   if (compCanvas) { c.imageSmoothingEnabled = v.zoom * (compCanvas.width / state.doc.w) < 1; c.imageSmoothingQuality = 'high'; c.drawImage(compCanvas, v.x, v.y, state.doc.w * v.zoom, state.doc.h * v.zoom); }
   c.strokeStyle = '#555'; c.lineWidth = 1; c.strokeRect(v.x - 0.5, v.y - 0.5, state.doc.w * v.zoom + 1, state.doc.h * v.zoom + 1);
+  if (drag && drag.kind === 'marquee' && drag.moved) { const r = marqueeRect(drag); const a = toScreen(r.x0, r.y0), b = toScreen(r.x1, r.y1); c.fillStyle = 'rgba(76,154,255,.12)'; c.fillRect(a.x, a.y, b.x - a.x, b.y - a.y); c.strokeStyle = '#4c9aff'; c.setLineDash([4, 3]); c.strokeRect(a.x + 0.5, a.y + 0.5, b.x - a.x, b.y - a.y); c.setLineDash([]); }
+  if (drag && drag.kind === 'move' && drag.guides && drag.guides.length) { c.strokeStyle = '#ff5fa2'; c.lineWidth = 1; for (const g of drag.guides) { c.beginPath(); if (g.axis === 'x') { const s = toScreen(g.pos, 0); c.moveTo(s.x + 0.5, 0); c.lineTo(s.x + 0.5, h); } else { const s = toScreen(0, g.pos); c.moveTo(0, s.y + 0.5); c.lineTo(w, s.y + 0.5); } c.stroke(); } }
   if (!state.showOutlines) return;
   const sel = selectedNodes(); if (!sel.length) return;
   const single = sel.length === 1;
@@ -103,14 +105,37 @@ function onDown(e) {
   // inside any selected box: move the selection
   const sel = selectedNodes();
   const inside = sel.find(n => boxContains(cmd.boxOf(n), d.x, d.y));
-  if (inside && !e.shiftKey) { drag = { kind: 'move', ids: sel.map(n => n.id), sx: d.x, sy: d.y, lx: d.x, ly: d.y, moved: false }; return; }
+  if (inside && !e.shiftKey) { drag = startMove(sel.map(n => n.id), d); return; }
   const hit = hitTest(d);
   if (hit) {
     if (e.shiftKey) { cmd.select([hit.id], { toggle: true }); return; }
     cmd.select([hit.id]);
-    drag = { kind: 'move', ids: [hit.id], sx: d.x, sy: d.y, lx: d.x, ly: d.y, moved: false }; return;
+    drag = startMove([hit.id], d); return;
   }
-  drag = { kind: 'panOrDeselect', sx: p.x, sy: p.y, vx: state.view.x, vy: state.view.y, moved: false };
+  drag = { kind: 'marquee', sx: d.x, sy: d.y, ex: d.x, ey: d.y, spx: p.x, spy: p.y, moved: false, base: e.shiftKey ? state.sel.slice() : [] };
+}
+
+function startMove(ids, d) {
+  const boxes = ids.map(id => findNode(id)).filter(Boolean).map(n => boxAABB(cmd.boxOf(n)));
+  return { kind: 'move', ids, sx: d.x, sy: d.y, ax: 0, ay: 0, moved: false, aabb0: boxes.length ? unionAABB(boxes) : null, guides: [] };
+}
+// Snap targets: document edges/centre and the edges/centres of unselected visible leaves.
+function snapTargets(excludeIds) {
+  const xs = [0, state.doc.w / 2, state.doc.w], ys = [0, state.doc.h / 2, state.doc.h];
+  for (const n of visibleLeaves()) { if (excludeIds.includes(n.id)) continue; const a = boxAABB(cmd.boxOf(n)); xs.push(a.x0, (a.x0 + a.x1) / 2, a.x1); ys.push(a.y0, (a.y0 + a.y1) / 2, a.y1); }
+  return { xs, ys };
+}
+function snapOffset(aabb, dx, dy, targets, thr) {
+  let bx = null, by = null, gx = null, gy = null;
+  for (const v of [aabb.x0 + dx, (aabb.x0 + aabb.x1) / 2 + dx, aabb.x1 + dx]) for (const t of targets.xs) { const d = t - v; if (Math.abs(d) < thr && (bx === null || Math.abs(d) < Math.abs(bx))) { bx = d; gx = t; } }
+  for (const v of [aabb.y0 + dy, (aabb.y0 + aabb.y1) / 2 + dy, aabb.y1 + dy]) for (const t of targets.ys) { const d = t - v; if (Math.abs(d) < thr && (by === null || Math.abs(d) < Math.abs(by))) { by = d; gy = t; } }
+  return { dx: dx + (bx || 0), dy: dy + (by || 0), guides: [gx !== null && { axis: 'x', pos: gx }, gy !== null && { axis: 'y', pos: gy }].filter(Boolean) };
+}
+function marqueeRect(dk) { return { x0: Math.min(dk.sx, dk.ex), y0: Math.min(dk.sy, dk.ey), x1: Math.max(dk.sx, dk.ex), y1: Math.max(dk.sy, dk.ey) }; }
+function marqueeSelection(dk) {
+  const r = marqueeRect(dk); const ids = [];
+  for (const n of visibleLeaves()) { if (n.locked) continue; const a = boxAABB(cmd.boxOf(n)); if (a.x1 >= r.x0 && a.x0 <= r.x1 && a.y1 >= r.y0 && a.y0 <= r.y1) ids.push(n.id); }
+  return [...new Set([...dk.base, ...ids])];
 }
 
 function onMove(e) {
@@ -128,16 +153,20 @@ function onMove(e) {
   const n = drag.id ? findNode(drag.id) : null;
   const uniform = n ? (n.lockAspect !== e.shiftKey) : e.shiftKey;
   switch (drag.kind) {
-    case 'pan': case 'panOrDeselect': {
-      if (Math.hypot(p.x - drag.sx, p.y - drag.sy) > 3) drag.moved = true;
-      if (drag.kind === 'pan' || drag.moved) { state.view.x = drag.vx + (p.x - drag.sx); state.view.y = drag.vy + (p.y - drag.sy); }
+    case 'pan': { state.view.x = drag.vx + (p.x - drag.sx); state.view.y = drag.vy + (p.y - drag.sy); break; }
+    case 'marquee': {
+      drag.ex = d.x; drag.ey = d.y;
+      if (Math.hypot(p.x - drag.spx, p.y - drag.spy) > 3) drag.moved = true;
+      if (drag.moved) { const ids = marqueeSelection(drag); if (ids.join() !== state.sel.join()) cmd.select(ids); }
       break;
     }
     case 'move': {
-      let tx = d.x, ty = d.y;
-      if (e.shiftKey) { if (Math.abs(d.x - drag.sx) > Math.abs(d.y - drag.sy)) ty = drag.sy; else tx = drag.sx; }
-      const dx = tx - drag.lx, dy = ty - drag.ly; drag.lx = tx; drag.ly = ty;
-      if (dx || dy) { drag.moved = true; cmd.moveBy(drag.ids, dx, dy, { transient: true }); }
+      let dx = d.x - drag.sx, dy = d.y - drag.sy;
+      if (e.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
+      drag.guides = [];
+      if (!(e.ctrlKey || e.metaKey) && drag.aabb0) { const s = snapOffset(drag.aabb0, dx, dy, snapTargets(drag.ids), 6 / state.view.zoom); dx = s.dx; dy = s.dy; drag.guides = s.guides; }
+      const mx = dx - drag.ax, my = dy - drag.ay;
+      if (mx || my) { drag.moved = true; drag.ax = dx; drag.ay = dy; cmd.moveBy(drag.ids, mx, my, { transient: true }); }
       break;
     }
     case 'rotate': {
@@ -166,6 +195,6 @@ function onMove(e) {
 }
 function endDrag() {
   if (!drag) return; const dk = drag; drag = null;
-  if (dk.kind === 'panOrDeselect' && !dk.moved) { cmd.select([]); return; }
+  if (dk.kind === 'marquee') { if (!dk.moved) cmd.select(dk.base); return; }
   if (dk.kind === 'move' || dk.kind === 'rotate' || dk.kind === 'scale') commit();
 }

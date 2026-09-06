@@ -11,6 +11,8 @@ export const state = {
   root: null,
   images: {},   // id -> image asset (see kinds/image.js)
   fonts: {},    // id -> {name, dataURL}
+  meshes: {},   // id -> {name, positions, triangles, bounds, dataURL?}
+  tools: {},    // id -> tool definition (embedded in the project; see kinds/tool.js)
   sel: [],      // selected node ids
   name: 'untitled',
   view: { x: 0, y: 0, zoom: 1 },
@@ -21,7 +23,7 @@ export const state = {
 export function resetDocument(doc) {
   state.doc = Object.assign({ w: 1024, h: 1024, bg: 0, unit: 'u16', mmPerPx: 0.1, depthMm: 2 }, doc || {});
   state.root = { id: 'root', kind: 'group', name: 'Document', visible: true, locked: false, x: 0, y: 0, sx: 1, sy: 1, rot: 0, lockAspect: false, blend: 'max', modifiers: [], params: {}, children: [] };
-  state.images = {}; state.fonts = {}; state.sel = []; state.name = 'untitled';
+  state.images = {}; state.fonts = {}; state.meshes = {}; state.tools = {}; state.sel = []; state.name = 'untitled';
 }
 resetDocument();
 
@@ -48,12 +50,18 @@ export function newNode(kind) { return createNode(kind, state.doc); }
 // ---- serialization
 const stripPrivate = (k, v) => (typeof k === 'string' && k.startsWith('_')) ? undefined : v;
 export function serializeTree() { return JSON.parse(JSON.stringify(state.root, stripPrivate)); }
-export function usedImageIds() { const s = new Set(); walk(state.root, n => { if (n.kind === 'image' && n.params.imageId) s.add(n.params.imageId); }); return s; }
+export function usedImageIds() { const s = new Set(); walk(state.root, n => { if ((n.kind === 'image' || n.kind === 'mesh') && n.params.imageId) s.add(n.params.imageId); }); return s; }
+export function usedToolIds() { const s = new Set(); walk(state.root, n => { if (n.kind.startsWith('tool:')) s.add(n.kind.slice(5)); }); return s; }
+export function usedMeshIds() { const s = new Set(); walk(state.root, n => { if (n.kind === 'mesh' && n.params.meshId && n.params.embed !== false) s.add(n.params.meshId); }); return s; }
 
 export function serialize() {
   const used = usedImageIds(); const images = {};
-  for (const [id, im] of Object.entries(state.images)) if (used.has(id)) images[id] = { dataURL: im.dataURL, w: im.w, h: im.h, bits: im.bits };
-  return { app: 'DepthCAD', version: FORMAT_VERSION, name: state.name, doc: deepClone(state.doc), root: serializeTree(), images, fonts: deepClone(state.fonts) };
+  for (const [id, im] of Object.entries(state.images)) if (used.has(id)) { images[id] = { dataURL: im.dataURL, w: im.w, h: im.h, bits: im.bits }; if (im.covDataURL) images[id].covDataURL = im.covDataURL; }
+  const usedM = usedMeshIds(); const meshes = {};
+  for (const [id, m] of Object.entries(state.meshes)) if (usedM.has(id) && m.dataURL) meshes[id] = { name: m.name, dataURL: m.dataURL };
+  const usedT = usedToolIds(); const toolsOut = {};
+  for (const [id, t] of Object.entries(state.tools)) if (usedT.has(id)) toolsOut[id] = JSON.parse(JSON.stringify(t, (k, v) => k.startsWith('_') ? undefined : v));
+  return { app: 'DepthCAD', version: FORMAT_VERSION, name: state.name, doc: deepClone(state.doc), root: serializeTree(), images, fonts: deepClone(state.fonts), meshes, tools: toolsOut };
 }
 
 // Normalize a loaded node: fill defaults for missing params/modifiers, drop unknown kinds.

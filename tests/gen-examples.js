@@ -79,5 +79,22 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     cmd.add('text', { text: 'DepthCAD', family: 'Helvetica', weight: '700', size: 64, value: 200 / 255 }, { parentId: 'root', name: 'Label', node: { x: 1225, y: 520, rot: -12 } });
   });
   await finish('shapes-primer', 700);
+
+  // 4. tool showcase: ring of stars and arc text around the relief, noise texture plate
+  await fresh(1024, 1024); await importImg(path.join(A, 'christus_depth_1024.png'));
+  await page.evaluate(async () => {
+    const { cmd, state } = depthcad; const img = state.root.children[0]; cmd.setNodeProps(img.id, { name: 'Christus (scan)', sx: 0.72, sy: 0.72 });
+    const mask = cmd.addMaskTo(img.id, 'ellipse'); cmd.setParams(mask.id, { w: 560, h: 560 }); cmd.addModifier(mask.id, 'feather'); cmd.setModifier(mask.id, 0, { radius: 4 });
+    const T = depthcad.tools.BUILTIN_TOOLS; const by = id => T.find(t => t.id === id);
+    for (const id of ['noise-texture', 'star-ring', 'text-arc']) await depthcad.tools.installTool(by(id), { silent: true });
+    const plate = depthcad.tools.addToolNode(by('noise-texture'), { w: 1000, h: 1000, cell: 40, octaves: 5, low: 0.08, high: 0.22, seed: 3 }); cmd.setNodeProps(plate.id, { name: 'Hammered plate' });
+    const pm = cmd.addMaskTo(plate.id, 'ellipse'); cmd.setParams(pm.id, { w: 980, h: 980 });
+    cmd.reorder(depthcad.state.root.children[depthcad.state.root.children.length - 1].id, 'root', 0);
+    cmd.add('shape', { shape: 'ellipse', w: 620, h: 620, inner: 0.9, profile: 'dome', high: 0.75 }, { parentId: 'root', name: 'Inner ring' });
+    const stars = depthcad.tools.addToolNode(by('star-ring'), { count: 16, radius: 400, size: 34, inner: 45, profile: 'dome', high: 0.85 }); cmd.setNodeProps(stars.id, { name: 'Ring of stars' });
+    const arc = depthcad.tools.addToolNode(by('text-arc'), { text: 'HE IS RISEN  ·  COME UNTO ME  ·', radius: 455, size: 44, family: 'Georgia', weight: '700', start: -90, spacing: 0.6, value: 0.92 }); cmd.setNodeProps(arc.id, { name: 'Arc text' });
+    await depthcad.renderFull();
+  });
+  await finish('tool-showcase', 512);
   await browser.close();
 })().catch(e => { console.error(e); process.exit(1); });

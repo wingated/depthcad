@@ -1,7 +1,8 @@
 // Preview rendering scheduler. Keeps the composite (float height array) for the 2D
 // view, the value readout and the 3D view; renders lazily on animation frames.
 import { state, allNodes } from './state.js';
-import { renderDocument } from '../engine/composite.js';
+import { renderDocument, setAsyncHook } from '../engine/composite.js';
+setAsyncHook((node, err) => { invalidate(); if (err) console.warn('tool error in', node.name, err); });
 
 export const previewCache = new Map();
 export const exportCache = new Map();

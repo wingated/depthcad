@@ -5,6 +5,8 @@ import { KINDS, BLEND_MODES } from '../engine/kinds.js';
 import { MODIFIERS } from '../engine/modifiers.js';
 import { TEXT_LAYOUTS } from '../kinds/text.js';
 import { fontPicker, listInstalledFonts } from './fontpicker.js';
+import { openMeshImport } from './meshImport.js';
+import { toolEditor, exportTool, saveToLibrary } from './tools.js';
 import { $, el, btn } from './dom.js';
 import { clamp } from '../engine/util.js';
 
@@ -138,6 +140,19 @@ export function buildProps() {
     root.appendChild(ks);
   } else if (def.hint) { const ks = section(def.label); ks.appendChild(el('div', 'hint', def.hint)); root.appendChild(ks); }
   if (n.kind === 'image') { const im = state.images[n.params.imageId]; if (im) root.lastChild.insertBefore(el('div', 'hint', `Source ${im.w}×${im.h}, ${im.bits}-bit`), root.lastChild.children[1]); }
+  if (def.isTool) {
+    const ts2 = section('Tool'); const t = def.tool;
+    if (n._error) ts2.appendChild(el('div', 'hint', 'Render error: ' + n._error)).style.color = '#e0575b';
+    const tb2 = el('div', 'btnrow'); tb2.append(btn('Edit tool…', () => toolEditor(t, () => buildProps())), btn('Export tool', () => exportTool(t)), btn('Save to my tools', () => saveToLibrary(t))); ts2.appendChild(tb2);
+    root.appendChild(ts2);
+  }
+  if (n.kind === 'mesh') {
+    const ms = section('Mesh'); const m = state.meshes[n.params.meshId]; const b = n.params.bake || {};
+    ms.appendChild(el('div', 'hint', m ? `${m.name}: ${m.triangles.toLocaleString()} triangles. Baked ${b.w}×${b.h}, angles ${(b.rot || []).map(v => +v.toFixed(1)).join(' / ')}, near ${(+b.near).toFixed(3)}, far ${(+b.far).toFixed(3)}.` : 'The source mesh is not in this project (it was not embedded), so the layer cannot be re-baked.'));
+    const mb = el('div', 'btnrow'); if (m) mb.appendChild(btn('Re-bake…', () => openMeshImport({ meshId: n.params.meshId, nodeId: n.id }), 'primary small'));
+    mb.appendChild(checkRow('Embed mesh in project file', () => n.params.embed !== false, v => cmd.setParam(id, 'embed', v)).firstChild); ms.appendChild(mb);
+    root.appendChild(ms);
+  }
 
   // ---- modifiers
   const addSel = document.createElement('select'); addSel.className = 'small';

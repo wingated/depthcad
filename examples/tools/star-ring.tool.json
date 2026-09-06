@@ -1,0 +1,86 @@
+{
+  "format": "depthcad-tool/1",
+  "id": "star-ring",
+  "name": "Ring of stars",
+  "version": 1,
+  "description": "N five-pointed stars arranged on a circle, each with a height profile.",
+  "schema": {
+    "count": {
+      "type": "int",
+      "label": "Stars",
+      "default": 12,
+      "min": 1,
+      "max": 200,
+      "step": 1,
+      "slider": true
+    },
+    "radius": {
+      "type": "number",
+      "label": "Ring radius (px)",
+      "default": 300,
+      "min": 1,
+      "max": 4000,
+      "step": 1,
+      "slider": true
+    },
+    "size": {
+      "type": "number",
+      "label": "Star size (px)",
+      "default": 60,
+      "min": 1,
+      "max": 2000,
+      "step": 1,
+      "slider": true
+    },
+    "inner": {
+      "type": "number",
+      "label": "Star inner %",
+      "default": 40,
+      "min": 5,
+      "max": 95,
+      "step": 1,
+      "slider": true
+    },
+    "points": {
+      "type": "int",
+      "label": "Points",
+      "default": 5,
+      "min": 3,
+      "max": 12,
+      "step": 1,
+      "slider": true
+    },
+    "profile": {
+      "type": "enum",
+      "label": "Profile",
+      "default": "dome",
+      "options": {
+        "flat": "Flat",
+        "linear": "Cone",
+        "dome": "Dome",
+        "cosine": "Smooth"
+      }
+    },
+    "high": {
+      "type": "depth",
+      "label": "Height",
+      "default": 1
+    },
+    "low": {
+      "type": "depth",
+      "label": "Base height",
+      "default": 0
+    },
+    "spin": {
+      "type": "number",
+      "label": "Spin (°)",
+      "default": 0,
+      "min": -180,
+      "max": 180,
+      "step": 1,
+      "slider": true
+    }
+  },
+  "measure": "return { w: 2 * (p.radius + p.size), h: 2 * (p.radius + p.size) };",
+  "render": "const n = Math.max(1, p.count | 0);\nlib.each((u, v) => {\n  let best = -1e9;\n  for (let i = 0; i < n; i++) {\n    const a = i / n * Math.PI * 2 + p.spin * Math.PI / 180;\n    const cx = Math.cos(a) * p.radius, cy = Math.sin(a) * p.radius;\n    const [lu, lv] = lib.sdf.rotate(u - cx, v - cy, -a * 180 / Math.PI - 90);\n    best = Math.max(best, lib.sdf.star(lu, lv, p.size, p.size * p.inner / 100, p.points));\n  }\n  const c = lib.aa(best); if (c <= 0) return null;\n  const t = lib.profile(p.profile, best, p.size * p.inner / 100 * 0.6);\n  return [p.low + (p.high - p.low) * t, c];\n});"
+}

@@ -1,6 +1,6 @@
 # DepthCAD v2 architecture proposal
 
-Status: adopted 2026-09-06. Phase 1 (engine, node tree, commands, PNG codec, dithered export, modifier stack, migration, module split) is implemented; phases 2–4 are pending. Two details changed during implementation and are noted inline.
+Status: implemented 2026-09-06 (all four phases). Details that changed during implementation are noted inline; the README documents the shipped behaviour.
 
 This document covers five things that arrived together and interact: a 16-bit depth pipeline, mesh (STL/OBJ) import, a node tree instead of a flat layer list, UI conventions, and an extension/AI layer. The short version:
 
@@ -158,6 +158,8 @@ WebGL2 renders the mesh with an **orthographic** camera (an engraving depth map 
 
 Parsers: binary and ASCII STL, and OBJ with polygon triangulation. Both are under 100 lines. Large meshes (millions of triangles) are fine for the GPU; parsing runs in a Worker so the UI stays responsive.
 
+Implementation notes: the depth is rendered into an `R32F` colour attachment (with a 24-bit packed fallback when float render targets are unavailable) and read back as distances; the final bake supersamples 2× and averages coverage. The inspection view is the same WebGL2 context drawn on screen with flat shading from screen-space derivatives, so no normals are stored. Plane handles sit on the top edge of the bake window and drag along the projected view axis.
+
 ### Modal layout
 
 Split pane, both sides showing the same mesh:
@@ -189,6 +191,8 @@ The goal is conventional and quiet: someone who has used any layer-based editor 
 
 ## 5. Extension tools and the AI agent
 
+Implementation notes: tools run in a single Worker created from a Blob URL (with a main-thread fallback when Workers are unavailable), with a 20 s timeout after which the Worker is recreated. `OffscreenCanvas` is allowed inside tools (`lib.canvas()`), which is how the text-on-arc example draws glyphs. Tool kinds are asynchronous: the compositor keeps the previous raster on screen while a new one renders and re-composites when it arrives; export waits for all pending tool renders. Tools used by a project are embedded in it; a separate library in IndexedDB holds the user's own tools across projects.
+
 ### Tool format
 
 A tool is a JSON document that can be saved, loaded, and shared:
@@ -212,6 +216,8 @@ A tool is a JSON document that can be saved, loaded, and shared:
 The engine registers a tool as a node kind: the schema generates the panel, `measure` gives the natural box, and `render` runs in a Worker with a plain `Raster` to fill and a small helper library (SDF primitives, polygon fill, noise, easing). Tool nodes are ordinary nodes: they transform, mask, blend, and modify like any other, and the project embeds the tool definitions it uses so a shared project always opens.
 
 Running tool code in a Worker keeps it off the DOM and the main thread and gives a timeout. It is still the user's own machine running code the user (or their agent) chose to add; that is the same trust model as any plugin system and should be stated plainly in the UI when a tool is installed from outside.
+
+Implementation notes: the Anthropic adapter loads the official TypeScript SDK from a CDN on first use (`dangerouslyAllowBrowser`) and calls the Messages API with the server-side refusal fallback enabled; OpenAI and Google use their function-calling endpoints directly. All three sit behind one adapter interface (`addUser`, `send`, `addResults`), which is also how the tests drive the loop with a scripted provider. A reply's changes are counted as undo steps so "Revert this reply" undoes exactly that turn.
 
 ### Agent
 

@@ -10,6 +10,8 @@ import { applyModifiers, modifierPad } from './modifiers.js';
 import { KINDS } from './kinds.js';
 
 const MAXPX = 4200 * 4200;
+let asyncHook = null;
+export function setAsyncHook(fn) { asyncHook = fn; }
 
 export function makeContext(state, scale, full, cache) {
   const W = Math.max(1, Math.round(state.doc.w * scale)), H = Math.max(1, Math.round(state.doc.h * scale));
@@ -77,10 +79,31 @@ function renderLocal(node, kind, nat, ctx) {
   const key = (kind.cacheKey ? kind.cacheKey(node, ctx) : JSON.stringify(node.params)) + '|' + cw + 'x' + ch + (ctx.full ? '|f' : '|p');
   const ent = ctx.cache && ctx.cache.get(node.id);
   if (ent && ent.key === key) return ent.raster;
+  if (kind.renderAsync) {
+    // asynchronous kinds (extension tools run in a Worker): start the render, show the previous raster meanwhile
+    if (!ctx.cache) return null;
+    if (ent && ent.pendingKey === key) return ent.raster || null;
+    const promise = kind.renderAsync(node, { cw, ch, full: ctx.full, ctx });
+    ctx.cache.set(node.id, { key: ent ? ent.key : null, raster: ent ? ent.raster : null, pendingKey: key, promise });
+    promise.then(r => { const cur = ctx.cache.get(node.id); if (cur && cur.pendingKey === key) ctx.cache.set(node.id, { key, raster: r }); node._error = null; if (asyncHook) asyncHook(node); },
+      err => { const cur = ctx.cache.get(node.id); if (cur && cur.pendingKey === key) ctx.cache.set(node.id, { key, raster: null }); node._error = String(err && err.message || err); if (asyncHook) asyncHook(node, node._error); });
+    return ent ? ent.raster : null;
+  }
   const raster = kind.render(node, { cw, ch, full: ctx.full, ctx });
   if (!raster) return null;
   if (ctx.cache) ctx.cache.set(node.id, { key, raster });
   return raster;
+}
+// Wait for every asynchronous kind in the tree to have a raster at this scale, then render.
+export async function renderDocumentAsync(state, scale, full, cache) {
+  const ctx = makeContext(state, scale, full, cache);
+  for (let pass = 0; pass < 3; pass++) {
+    renderDocument(state, scale, full, cache); // kicks off pending renders
+    const waits = []; for (const [, ent] of cache) if (ent.pendingKey && ent.promise) waits.push(ent.promise.catch(() => null));
+    if (!waits.length) break;
+    await Promise.all(waits);
+  }
+  return renderDocument(state, scale, full, cache);
 }
 
 // Natural (unscaled) size of a node in local units. Groups measure as the AABB of their children.

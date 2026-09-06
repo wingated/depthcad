@@ -22,4 +22,5 @@ function restore(s) {
 export function undo() { if (!undoStack.length) return false; redoStack.push(lastSnap); lastSnap = undoStack.pop(); restore(lastSnap); return true; }
 export function redo() { if (!redoStack.length) return false; undoStack.push(lastSnap); lastSnap = redoStack.pop(); restore(lastSnap); return true; }
 export function canUndo() { return undoStack.length > 0; }
+export function undoDepth() { return undoStack.length; }
 export function canRedo() { return redoStack.length > 0; }

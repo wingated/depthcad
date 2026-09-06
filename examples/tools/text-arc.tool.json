@@ -1,0 +1,76 @@
+{
+  "format": "depthcad-tool/1",
+  "id": "text-arc",
+  "name": "Text on an arc",
+  "version": 1,
+  "description": "Text laid out along a circular arc, inside or outside a ring. Uses the tool canvas for glyphs.",
+  "schema": {
+    "text": {
+      "type": "text",
+      "label": "Text",
+      "default": "AROUND THE CIRCLE"
+    },
+    "radius": {
+      "type": "number",
+      "label": "Radius (px)",
+      "default": 400,
+      "min": 10,
+      "max": 8000,
+      "step": 1,
+      "slider": true
+    },
+    "size": {
+      "type": "number",
+      "label": "Font size (px)",
+      "default": 60,
+      "min": 4,
+      "max": 2000,
+      "step": 1
+    },
+    "family": {
+      "type": "string",
+      "label": "Font family",
+      "default": "Helvetica"
+    },
+    "weight": {
+      "type": "enum",
+      "label": "Weight",
+      "default": "700",
+      "options": {
+        "400": "Regular",
+        "700": "Bold",
+        "900": "Black"
+      }
+    },
+    "start": {
+      "type": "number",
+      "label": "Start angle (°)",
+      "default": -90,
+      "min": -360,
+      "max": 360,
+      "step": 1,
+      "slider": true
+    },
+    "spacing": {
+      "type": "number",
+      "label": "Letter spacing (°)",
+      "default": 0,
+      "min": -10,
+      "max": 30,
+      "step": 0.1,
+      "slider": true
+    },
+    "inside": {
+      "type": "bool",
+      "label": "Inside of the circle (reads clockwise, glyph tops toward the centre)",
+      "default": false
+    },
+    "value": {
+      "type": "depth",
+      "label": "Value",
+      "default": 1
+    }
+  },
+  "measure": "return { w: 2 * (p.radius + p.size * 1.2), h: 2 * (p.radius + p.size * 1.2) };",
+  "render": "const ctx = lib.canvas();\nctx.font = p.weight + ' ' + p.size + 'px \"' + p.family + '\"'; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'center';\nconst chars = [...String(p.text)];\nconst widths = chars.map(ch => ctx.measureText(ch).width);\nconst R = p.inside ? p.radius - p.size * 0.15 : p.radius + p.size * 0.15;\nconst dir = p.inside ? -1 : 1;\nlet ang = p.start * Math.PI / 180;\nfor (let i = 0; i < chars.length; i++) {\n  const half = widths[i] / 2 / R;\n  ang += dir * half;\n  ctx.save(); ctx.rotate(ang + (p.inside ? -Math.PI / 2 : Math.PI / 2)); ctx.translate(0, p.inside ? R : -R);\n  if (p.inside) ctx.rotate(Math.PI);\n  ctx.fillText(chars[i], 0, p.inside ? -p.size * 0.35 : p.size * 0.35);\n  ctx.restore();\n  ang += dir * (half + p.spacing * Math.PI / 180);\n}\nlib.fromCanvas(ctx, p.value);"
+}

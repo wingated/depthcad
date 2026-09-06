@@ -99,6 +99,40 @@ canvas.curve{display:block;width:260px;height:160px;border:1px solid var(--borde
 #modal.on{display:flex}
 #modal .box{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px 20px;min-width:340px;max-width:560px;max-height:90vh;overflow-y:auto}
 #modal h3{margin:0 0 10px}
+#modal .box.wide{max-width:96vw;width:900px}
+#toolsMenu{position:fixed;z-index:30;background:var(--panel2);border:1px solid var(--border);border-radius:6px;min-width:240px;max-width:320px;box-shadow:0 8px 24px rgba(0,0,0,.55);display:none;padding:4px 0}
+#toolsMenu.on{display:block}
+#toolsMenu .thdr{padding:6px 10px 2px;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
+#toolsMenu .titem{padding:5px 12px;cursor:pointer}
+#toolsMenu .titem:hover{background:#3a4a63}
+#toolsMenu .tsep{border-top:1px solid var(--border);margin:4px 0}
+#toolsMenu .hint{padding:0 10px}
+.aibtn{position:fixed;right:18px;bottom:34px;width:38px;height:38px;border-radius:50%;background:var(--accent);color:#fff;border:none;font-size:18px;box-shadow:0 4px 14px rgba(0,0,0,.45);z-index:25;cursor:pointer}
+.aibtn:hover{background:#3d8cf0}
+#aiDrawer{position:fixed;right:0;top:40px;bottom:22px;width:400px;background:var(--panel);border-left:1px solid var(--border);box-shadow:-6px 0 20px rgba(0,0,0,.4);z-index:24;display:none;flex-direction:column;transform:translateX(100%);transition:transform .15s}
+#aiDrawer.on{display:flex;transform:none}
+#aiDrawer .aihead{padding:8px 10px;border-bottom:1px solid var(--border)}
+#aiDrawer .ailog{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:6px;user-select:text;-webkit-user-select:text}
+#aiDrawer .aimsg{padding:6px 9px;border-radius:8px;white-space:pre-wrap;line-height:1.45;max-width:95%}
+#aiDrawer .aimsg.user{background:#2f3f57;align-self:flex-end}
+#aiDrawer .aimsg.ai{background:var(--panel2);align-self:flex-start}
+#aiDrawer .aimsg.call{font-size:11px;color:var(--muted);font-family:Menlo,Consolas,monospace;padding:2px 9px}
+#aiDrawer .aimsg.sys{font-size:11px;color:var(--muted)}
+#aiDrawer .aiinput{padding:8px 10px;border-top:1px solid var(--border)}
+#aiDrawer .aiinput textarea{margin-bottom:4px}
+#aiStatus{padding:0 10px}
+.meshwrap{display:flex;gap:16px;align-items:flex-start}
+.mcol{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.mtitle{font-weight:600;color:#fff}
+.mtitle .sub{font-weight:400;color:var(--muted);margin-left:6px}
+.mprev,.mhist,.mgl,.mov{display:block;width:100%;border:1px solid var(--border);border-radius:4px;touch-action:none}
+.mprev{cursor:grab;aspect-ratio:1}
+.mhist{height:72px;cursor:ew-resize}
+.mglwrap{position:relative;aspect-ratio:1}
+.mgl,.mov{position:absolute;inset:0;height:100%}
+.mov{background:transparent;cursor:grab}
+.meshwrap .row>label{width:auto;flex:none}
+.meshwrap .btnrow label{align-self:center;margin-right:4px}
 </style>
 </head>
 <body>
@@ -114,7 +148,9 @@ canvas.curve{display:block;width:260px;height:160px;border:1px solid var(--borde
     <button id="bRect" title="Add rectangle layer">+ Rect</button>
     <button id="bRing" title="Add ring / ellipse layer">+ Ring</button>
     <button id="bText" title="Add text layer">+ Text</button>
+    <button id="bMesh" title="Import an STL or OBJ model as a depth layer">+ Mesh</button>
     <button id="bMask" title="Add a mask to the selected layer (or a free mask)">+ Mask</button>
+    <button id="bTools" title="Extension tools: parametric generators you or the assistant can write">Tools ▾</button>
     <div class="sep"></div>
     <button id="bGroup" class="need2" title="Group selection (Ctrl+G)">Group</button>
     <button id="bUngroup" title="Ungroup (Ctrl+Shift+G)">Ungroup</button>
@@ -141,12 +177,13 @@ canvas.curve{display:block;width:260px;height:160px;border:1px solid var(--borde
     </select>
     <button id="b3d" title="Toggle 3D view">3D</button>
     <div class="sep"></div>
-    <button id="bDoc" title="Document settings">Doc…</button>
     <button id="bExport" class="primary" title="Export grayscale PNG (Ctrl+E)">Export…</button>
     <button id="bHelp" title="Help">?</button>
     <input type="file" id="fileImg" accept="image/*" multiple style="display:none">
     <input type="file" id="fileProj" accept=".json,.dcad,application/json" style="display:none">
     <input type="file" id="fileFont" accept=".ttf,.otf,.woff,.woff2,font/*" multiple style="display:none">
+    <input type="file" id="fileMesh" accept=".stl,.obj" style="display:none">
+    <input type="file" id="fileTool" accept=".json" multiple style="display:none">
   </div>
 
   <div id="left">
@@ -424,9 +461,10 @@ function restore(s) {
 function undo() { if (!undoStack.length) return false; redoStack.push(lastSnap); lastSnap = undoStack.pop(); restore(lastSnap); return true; }
 function redo() { if (!redoStack.length) return false; undoStack.push(lastSnap); lastSnap = redoStack.pop(); restore(lastSnap); return true; }
 function canUndo() { return undoStack.length > 0; }
+function undoDepth() { return undoStack.length; }
 function canRedo() { return redoStack.length > 0; }
 
-Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get onHistory() { return onHistory; }, get snapshot() { return snapshot; }, get commit() { return commit; }, get resetHistory() { return resetHistory; }, get undo() { return undo; }, get redo() { return redo; }, get canUndo() { return canUndo; }, get canRedo() { return canRedo; } }));
+Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get onHistory() { return onHistory; }, get snapshot() { return snapshot; }, get commit() { return commit; }, get resetHistory() { return resetHistory; }, get undo() { return undo; }, get redo() { return redo; }, get canUndo() { return canUndo; }, get undoDepth() { return undoDepth; }, get canRedo() { return canRedo; } }));
 });
 __define('./app/io.js', function (__exports) {
 // Import/export and persistence: images (8/16-bit PNG through the built-in codec,
@@ -441,11 +479,14 @@ const { bumpFontsVersion } = __require('./kinds/text.js');
 const { uid } = __require('./engine/util.js');
 const { add } = __require('./app/commands.js');
 const { clearCaches, exportCache, invalidate } = __require('./app/render.js');
-const { readAsDataURL, readAsText, decodeImageEl, dataURLToBytes, downloadBlob, setMsg } = __require('./ui/dom.js');
+const { readAsDataURL, readAsText, readAsArrayBuffer, decodeImageEl, dataURLToBytes, downloadBlob, setMsg } = __require('./ui/dom.js');
+const { parseMesh } = __require('./engine/mesh.js');
+const { registerTool } = __require('./kinds/tool.js');
+const { renderDocumentAsync } = __require('./engine/composite.js');
 // ---- images
-async function registerImage(dataURL, id) {
+async function registerImage(dataURL, id, covDataURL = null) {
   id = id || uid();
-  let w, h, bits, u16;
+  let w, h, bits, u16, cov = null;
   if (/^data:image\/png/i.test(dataURL)) {
     const dec = await decodePNG(dataURLToBytes(dataURL).buffer);
     w = dec.w; h = dec.h; bits = dec.bits; u16 = dec.data;
@@ -456,7 +497,32 @@ async function registerImage(dataURL, id) {
     const d = x.getImageData(0, 0, w, h).data; u16 = new Uint16Array(w * h);
     for (let i = 0, k = 0; i < u16.length; i++, k += 4) u16[i] = d[k] * 257;
   }
-  state.images[id] = makeImageAsset(dataURL, w, h, bits, u16);
+  if (covDataURL) { try { const c = await decodePNG(dataURLToBytes(covDataURL).buffer); if (c.w === w && c.h === h) { cov = new Float32Array(w * h); for (let i = 0; i < cov.length; i++) cov[i] = c.data[i] / 65535; } } catch (e) { console.warn('coverage decode failed', e); } }
+  state.images[id] = makeImageAsset(dataURL, w, h, bits, u16, cov, covDataURL);
+  return id;
+}
+// Store a baked raster (normalized height + coverage) as a 16-bit image asset with a coverage PNG.
+async function registerBakedRaster(r) {
+  const id = uid();
+  const u16 = toU16(r.height); const c8 = new Uint8Array(r.coverage.length); for (let i = 0; i < c8.length; i++) c8[i] = Math.round(Math.min(1, Math.max(0, r.coverage[i])) * 255);
+  const png = await encodeGrayPNG(r.w, r.h, u16, 16), cpng = await encodeGrayPNG(r.w, r.h, c8, 8);
+  const dataURL = 'data:image/png;base64,' + bytesToBase64(png), covDataURL = 'data:image/png;base64,' + bytesToBase64(cpng);
+  state.images[id] = makeImageAsset(dataURL, r.w, r.h, 16, u16, Float32Array.from(r.coverage), covDataURL);
+  return id;
+}
+function bytesToBase64(bytes) { let s = ''; for (let i = 0; i < bytes.length; i += 8192) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192)); return btoa(s); }
+
+// ---- meshes
+async function registerMesh(name, buf, id, dataURL) {
+  id = id || uid();
+  const mesh = parseMesh(name, buf);
+  state.meshes[id] = { name, positions: mesh.positions, triangles: mesh.triangles, bounds: mesh.bounds, dataURL: dataURL || ('data:application/octet-stream;base64,' + bytesToBase64(new Uint8Array(buf))), bytes: buf.byteLength };
+  return id;
+}
+async function importMeshFile(file) {
+  const buf = await readAsArrayBuffer(file);
+  const id = await registerMesh(file.name.replace(/\.[^.]+$/, ''), buf);
+  setMsg(`Loaded ${file.name}: ${state.meshes[id].triangles.toLocaleString()} triangles`);
   return id;
 }
 async function importImageFile(file) {
@@ -483,8 +549,10 @@ async function loadProject(p) {
   if (!p || (!p.root && !p.layers)) throw new Error('Not a DepthCAD project');
   if (!p.version || p.version < 2) p = migrateV1(p);
   resetDocument(p.doc);
-  for (const [id, im] of Object.entries(p.images || {})) { try { await registerImage(im.dataURL, id); } catch (e) { console.warn('image failed', id, e); } }
+  for (const [id, im] of Object.entries(p.images || {})) { try { await registerImage(im.dataURL, id, im.covDataURL || null); } catch (e) { console.warn('image failed', id, e); } }
+  for (const [id, m] of Object.entries(p.meshes || {})) { try { await registerMesh(m.name, dataURLToBytes(m.dataURL).buffer, id, m.dataURL); } catch (e) { console.warn('mesh failed', id, e); } }
   for (const [id, f] of Object.entries(p.fonts || {})) { try { await registerFont(f.name, f.dataURL, id); } catch (e) { console.warn('font failed', f.name, e); } }
+  for (const [id, t] of Object.entries(p.tools || {})) { try { registerTool(t); state.tools[t.id || id] = t; } catch (e) { console.warn('tool failed', id, e); } }
   state.root = normalizeNode(p.root); state.root.id = 'root';
   state.name = p.name || 'untitled'; state.sel = [];
   clearCaches(); resetHistory();
@@ -509,16 +577,16 @@ async function restoreAutosave() { const p = await idb.get('autosave'); if (p &&
 
 // ---- export
 async function exportPNG({ bits = 8, dither = 'fs', name } = {}) {
-  const out = renderDocument(state, 1, true, exportCache);
+  const out = await renderDocumentAsync(state, 1, true, exportCache);
   const data = bits === 16 ? toU16(out.height) : toU8(out.height, out.w, out.h, dither);
   const png = await encodeGrayPNG(out.w, out.h, data, bits);
   downloadBlob(new Blob([png], { type: 'image/png' }), (name || state.name || 'depthmap') + '.png');
   setMsg(`Exported ${out.w}×${out.h} ${bits}-bit PNG`);
   return out;
 }
-function renderFull() { return renderDocument(state, 1, true, exportCache); }
+function renderFull() { return renderDocumentAsync(state, 1, true, exportCache); }
 
-Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get registerImage() { return registerImage; }, get importImageFile() { return importImageFile; }, get registerFont() { return registerFont; }, get importFontFile() { return importFontFile; }, get loadProject() { return loadProject; }, get newProject() { return newProject; }, get saveProject() { return saveProject; }, get openProjectFile() { return openProjectFile; }, get autosave() { return autosave; }, get restoreAutosave() { return restoreAutosave; }, get exportPNG() { return exportPNG; }, get renderFull() { return renderFull; } }));
+Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get registerImage() { return registerImage; }, get registerBakedRaster() { return registerBakedRaster; }, get bytesToBase64() { return bytesToBase64; }, get registerMesh() { return registerMesh; }, get importMeshFile() { return importMeshFile; }, get importImageFile() { return importImageFile; }, get registerFont() { return registerFont; }, get importFontFile() { return importFontFile; }, get loadProject() { return loadProject; }, get newProject() { return newProject; }, get saveProject() { return saveProject; }, get openProjectFile() { return openProjectFile; }, get idb() { return idb; }, get autosave() { return autosave; }, get restoreAutosave() { return restoreAutosave; }, get exportPNG() { return exportPNG; }, get renderFull() { return renderFull; } }));
 });
 __define('./app/main.js', function (__exports) {
 // Application wiring: toolbar, keyboard, drag & drop, event dispatch, startup.
@@ -527,7 +595,7 @@ const cmd = __require('./app/commands.js');
 const { onChange } = __require('./app/commands.js');
 const { undo, redo, canUndo, canRedo, onHistory, commit } = __require('./app/history.js');
 const { invalidate, startLoop, pruneCaches, clearCaches } = __require('./app/render.js');
-const { importImageFile, importFontFile, openProjectFile, saveProject, newProject, autosave, restoreAutosave, registerImage, loadProject, renderFull } = __require('./app/io.js');
+const { importImageFile, importFontFile, importMeshFile, openProjectFile, saveProject, newProject, autosave, restoreAutosave, registerImage, loadProject, renderFull } = __require('./app/io.js');
 const { serialize } = __require('./app/state.js');
 const { encodeGrayPNG } = __require('./engine/png.js');
 const { toU16, toU8 } = __require('./engine/dither.js');
@@ -536,6 +604,11 @@ const { initTree, buildTree, refreshSelection } = __require('./ui/tree.js');
 const { initProps, buildProps, refreshProps } = __require('./ui/props.js');
 const { initView3d, view3d } = __require('./ui/view3d.js');
 const { initDialogs, documentDialog, exportDialog, helpDialog } = __require('./ui/dialogs.js');
+const { openMeshImport } = __require('./ui/meshImport.js');
+const { initToolsMenu, loadLibrary, installTool, addToolNode } = __require('./ui/tools.js');
+const { initAgent, setAdapterFactory, documentSummary } = __require('./ui/agent.js');
+const { BUILTIN_TOOLS } = __require('./tools/builtin.js');
+__require('./kinds/mesh.js');
 const { ringPreset, rectPreset } = __require('./kinds/shape.js');
 __require('./kinds/group.js');
 __require('./kinds/mask.js');
@@ -575,6 +648,8 @@ function wire() {
   $('#bRect').addEventListener('click', () => { const n = cmd.add('shape'); rectPreset(n); cmd.setNodeProps(n.id, { name: 'Rect' }); });
   $('#bRing').addEventListener('click', () => { const n = cmd.add('shape'); ringPreset(n); cmd.setNodeProps(n.id, { name: 'Ring' }); });
   $('#bText').addEventListener('click', () => cmd.add('text'));
+  $('#bMesh').addEventListener('click', () => $('#fileMesh').click());
+  $('#fileMesh').addEventListener('change', async e => { const f = e.target.files[0]; if (f) { try { const id = await importMeshFile(f); openMeshImport({ meshId: id }); } catch (err) { alert('Could not load mesh: ' + err.message); } } e.target.value = ''; });
   $('#bMask').addEventListener('click', () => { const n = selectedNodes()[0]; if (n && n.kind !== 'mask') cmd.addMaskTo(n.id, 'ellipse'); else cmd.add('mask'); });
   $('#bGroup').addEventListener('click', () => cmd.group());
   $('#bUngroup').addEventListener('click', () => cmd.ungroup());
@@ -585,7 +660,6 @@ function wire() {
   $('#bExport').addEventListener('click', exportDialog);
   $('#bHelp').addEventListener('click', helpDialog);
   $('#stDoc').addEventListener('click', documentDialog);
-  $('#bDoc').addEventListener('click', documentDialog);
   document.addEventListener('depthcad:documentDialog', documentDialog);
   $('#bUp').addEventListener('click', () => { for (const id of state.sel) cmd.moveInStack(id, 1); });
   $('#bDown').addEventListener('click', () => { for (const id of state.sel) cmd.moveInStack(id, -1); });
@@ -613,6 +687,7 @@ function wire() {
       try {
         if (/\.(json|dcad)$/i.test(f.name)) { await openProjectFile(f); refreshAll(); autosave(); }
         else if (/\.(ttf|otf|woff2?)$/i.test(f.name)) await importFontFile(f);
+        else if (/\.(stl|obj)$/i.test(f.name)) { const id = await importMeshFile(f); openMeshImport({ meshId: id }); }
         else if (f.type.startsWith('image/')) { const first = !state.root.children.length; await importImageFile(f); if (first) fitView(); }
       } catch (err) { alert(err.message); }
     }
@@ -655,14 +730,15 @@ async function pasteFromClipboard() {
 // Debug / scripting API (also used by the headless tests)
 window.depthcad = {
   state, cmd, undo, redo, commit, findNode, serialize, refreshAll, fitView, renderFull,
-  io: { importImageFile, importFontFile, openProjectFile, saveProject, newProject, registerImage, loadProject },
-  async encode16() { const out = renderFull(); return encodeGrayPNG(out.w, out.h, toU16(out.height), 16); },
-  async encode8(dither = 'fs') { const out = renderFull(); return encodeGrayPNG(out.w, out.h, toU8(out.height, out.w, out.h, dither), 8); },
+  io: { importImageFile, importFontFile, importMeshFile, openProjectFile, saveProject, newProject, registerImage, loadProject }, openMeshImport,
+  tools: { installTool, addToolNode, BUILTIN_TOOLS }, agent: { setAdapterFactory, documentSummary },
+  async encode16() { const out = await renderFull(); return encodeGrayPNG(out.w, out.h, toU16(out.height), 16); },
+  async encode8(dither = 'fs') { const out = await renderFull(); return encodeGrayPNG(out.w, out.h, toU8(out.height, out.w, out.h, dither), 8); },
   toBase64(bytes) { let s = ''; for (let i = 0; i < bytes.length; i += 8192) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192)); return btoa(s); },
 };
 
 (async () => {
-  initCanvas(); initTree(); initProps(); initView3d(); initDialogs(); wire();
+  initCanvas(); initTree(); initProps(); initView3d(); initDialogs(); wire(); initToolsMenu(); await loadLibrary(); window.depthcad.agent.ui = initAgent();
   let restored = false;
   try { restored = await restoreAutosave(); if (restored) setMsg('Restored autosaved project'); } catch (e) { console.warn('autosave restore failed', e); }
   if (!restored) newProject();
@@ -675,7 +751,9 @@ __define('./app/render.js', function (__exports) {
 // Preview rendering scheduler. Keeps the composite (float height array) for the 2D
 // view, the value readout and the 3D view; renders lazily on animation frames.
 const { state, allNodes } = __require('./app/state.js');
-const { renderDocument } = __require('./engine/composite.js');
+const { renderDocument, setAsyncHook } = __require('./engine/composite.js');
+setAsyncHook((node, err) => { invalidate(); if (err) console.warn('tool error in', node.name, err); });
+
 const previewCache = new Map();
 const exportCache = new Map();
 let comp = null, compScale = 1, dirty = true;
@@ -724,6 +802,8 @@ const state = {
   root: null,
   images: {},   // id -> image asset (see kinds/image.js)
   fonts: {},    // id -> {name, dataURL}
+  meshes: {},   // id -> {name, positions, triangles, bounds, dataURL?}
+  tools: {},    // id -> tool definition (embedded in the project; see kinds/tool.js)
   sel: [],      // selected node ids
   name: 'untitled',
   view: { x: 0, y: 0, zoom: 1 },
@@ -734,7 +814,7 @@ const state = {
 function resetDocument(doc) {
   state.doc = Object.assign({ w: 1024, h: 1024, bg: 0, unit: 'u16', mmPerPx: 0.1, depthMm: 2 }, doc || {});
   state.root = { id: 'root', kind: 'group', name: 'Document', visible: true, locked: false, x: 0, y: 0, sx: 1, sy: 1, rot: 0, lockAspect: false, blend: 'max', modifiers: [], params: {}, children: [] };
-  state.images = {}; state.fonts = {}; state.sel = []; state.name = 'untitled';
+  state.images = {}; state.fonts = {}; state.meshes = {}; state.tools = {}; state.sel = []; state.name = 'untitled';
 }
 resetDocument();
 
@@ -761,12 +841,18 @@ function newNode(kind) { return createNode(kind, state.doc); }
 // ---- serialization
 const stripPrivate = (k, v) => (typeof k === 'string' && k.startsWith('_')) ? undefined : v;
 function serializeTree() { return JSON.parse(JSON.stringify(state.root, stripPrivate)); }
-function usedImageIds() { const s = new Set(); walk(state.root, n => { if (n.kind === 'image' && n.params.imageId) s.add(n.params.imageId); }); return s; }
+function usedImageIds() { const s = new Set(); walk(state.root, n => { if ((n.kind === 'image' || n.kind === 'mesh') && n.params.imageId) s.add(n.params.imageId); }); return s; }
+function usedToolIds() { const s = new Set(); walk(state.root, n => { if (n.kind.startsWith('tool:')) s.add(n.kind.slice(5)); }); return s; }
+function usedMeshIds() { const s = new Set(); walk(state.root, n => { if (n.kind === 'mesh' && n.params.meshId && n.params.embed !== false) s.add(n.params.meshId); }); return s; }
 
 function serialize() {
   const used = usedImageIds(); const images = {};
-  for (const [id, im] of Object.entries(state.images)) if (used.has(id)) images[id] = { dataURL: im.dataURL, w: im.w, h: im.h, bits: im.bits };
-  return { app: 'DepthCAD', version: FORMAT_VERSION, name: state.name, doc: deepClone(state.doc), root: serializeTree(), images, fonts: deepClone(state.fonts) };
+  for (const [id, im] of Object.entries(state.images)) if (used.has(id)) { images[id] = { dataURL: im.dataURL, w: im.w, h: im.h, bits: im.bits }; if (im.covDataURL) images[id].covDataURL = im.covDataURL; }
+  const usedM = usedMeshIds(); const meshes = {};
+  for (const [id, m] of Object.entries(state.meshes)) if (usedM.has(id) && m.dataURL) meshes[id] = { name: m.name, dataURL: m.dataURL };
+  const usedT = usedToolIds(); const toolsOut = {};
+  for (const [id, t] of Object.entries(state.tools)) if (usedT.has(id)) toolsOut[id] = JSON.parse(JSON.stringify(t, (k, v) => k.startsWith('_') ? undefined : v));
+  return { app: 'DepthCAD', version: FORMAT_VERSION, name: state.name, doc: deepClone(state.doc), root: serializeTree(), images, fonts: deepClone(state.fonts), meshes, tools: toolsOut };
 }
 
 // Normalize a loaded node: fill defaults for missing params/modifiers, drop unknown kinds.
@@ -827,7 +913,7 @@ function depthStep(doc = state.doc) { return doc.unit === 'mm' ? 0.01 : doc.unit
 function depthDecimals(doc = state.doc) { return doc.unit === 'mm' ? 2 : doc.unit === 'percent' ? 1 : 0; }
 function fmtDepth(v, doc = state.doc) { return depthToDisplay(v, doc).toFixed(depthDecimals(doc)); }
 
-Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get FORMAT_VERSION() { return FORMAT_VERSION; }, get state() { return state; }, get resetDocument() { return resetDocument; }, get walk() { return walk; }, get findNode() { return findNode; }, get parentOf() { return parentOf; }, get allNodes() { return allNodes; }, get visibleLeaves() { return visibleLeaves; }, get isAncestor() { return isAncestor; }, get selectedNodes() { return selectedNodes; }, get primarySelected() { return primarySelected; }, get newNode() { return newNode; }, get serializeTree() { return serializeTree; }, get usedImageIds() { return usedImageIds; }, get serialize() { return serialize; }, get normalizeNode() { return normalizeNode; }, get migrateV1() { return migrateV1; }, get UNITS() { return UNITS; }, get depthToDisplay() { return depthToDisplay; }, get displayToDepth() { return displayToDepth; }, get depthStep() { return depthStep; }, get depthDecimals() { return depthDecimals; }, get fmtDepth() { return fmtDepth; } }));
+Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get FORMAT_VERSION() { return FORMAT_VERSION; }, get state() { return state; }, get resetDocument() { return resetDocument; }, get walk() { return walk; }, get findNode() { return findNode; }, get parentOf() { return parentOf; }, get allNodes() { return allNodes; }, get visibleLeaves() { return visibleLeaves; }, get isAncestor() { return isAncestor; }, get selectedNodes() { return selectedNodes; }, get primarySelected() { return primarySelected; }, get newNode() { return newNode; }, get serializeTree() { return serializeTree; }, get usedImageIds() { return usedImageIds; }, get usedToolIds() { return usedToolIds; }, get usedMeshIds() { return usedMeshIds; }, get serialize() { return serialize; }, get normalizeNode() { return normalizeNode; }, get migrateV1() { return migrateV1; }, get UNITS() { return UNITS; }, get depthToDisplay() { return depthToDisplay; }, get displayToDepth() { return displayToDepth; }, get depthStep() { return depthStep; }, get depthDecimals() { return depthDecimals; }, get fmtDepth() { return fmtDepth; } }));
 });
 __define('./engine/composite.js', function (__exports) {
 // Tree compositor. Renders a node tree into a document-space raster.
@@ -841,6 +927,8 @@ const { resampleToDoc, boxAABB, unionAABB } = __require('./engine/transform.js')
 const { applyModifiers, modifierPad } = __require('./engine/modifiers.js');
 const { KINDS } = __require('./engine/kinds.js');
 const MAXPX = 4200 * 4200;
+let asyncHook = null;
+function setAsyncHook(fn) { asyncHook = fn; }
 
 function makeContext(state, scale, full, cache) {
   const W = Math.max(1, Math.round(state.doc.w * scale)), H = Math.max(1, Math.round(state.doc.h * scale));
@@ -908,10 +996,31 @@ function renderLocal(node, kind, nat, ctx) {
   const key = (kind.cacheKey ? kind.cacheKey(node, ctx) : JSON.stringify(node.params)) + '|' + cw + 'x' + ch + (ctx.full ? '|f' : '|p');
   const ent = ctx.cache && ctx.cache.get(node.id);
   if (ent && ent.key === key) return ent.raster;
+  if (kind.renderAsync) {
+    // asynchronous kinds (extension tools run in a Worker): start the render, show the previous raster meanwhile
+    if (!ctx.cache) return null;
+    if (ent && ent.pendingKey === key) return ent.raster || null;
+    const promise = kind.renderAsync(node, { cw, ch, full: ctx.full, ctx });
+    ctx.cache.set(node.id, { key: ent ? ent.key : null, raster: ent ? ent.raster : null, pendingKey: key, promise });
+    promise.then(r => { const cur = ctx.cache.get(node.id); if (cur && cur.pendingKey === key) ctx.cache.set(node.id, { key, raster: r }); node._error = null; if (asyncHook) asyncHook(node); },
+      err => { const cur = ctx.cache.get(node.id); if (cur && cur.pendingKey === key) ctx.cache.set(node.id, { key, raster: null }); node._error = String(err && err.message || err); if (asyncHook) asyncHook(node, node._error); });
+    return ent ? ent.raster : null;
+  }
   const raster = kind.render(node, { cw, ch, full: ctx.full, ctx });
   if (!raster) return null;
   if (ctx.cache) ctx.cache.set(node.id, { key, raster });
   return raster;
+}
+// Wait for every asynchronous kind in the tree to have a raster at this scale, then render.
+async function renderDocumentAsync(state, scale, full, cache) {
+  const ctx = makeContext(state, scale, full, cache);
+  for (let pass = 0; pass < 3; pass++) {
+    renderDocument(state, scale, full, cache); // kicks off pending renders
+    const waits = []; for (const [, ent] of cache) if (ent.pendingKey && ent.promise) waits.push(ent.promise.catch(() => null));
+    if (!waits.length) break;
+    await Promise.all(waits);
+  }
+  return renderDocument(state, scale, full, cache);
 }
 
 // Natural (unscaled) size of a node in local units. Groups measure as the AABB of their children.
@@ -935,7 +1044,7 @@ function groupAABB(group, ctx) {
   return list.length ? unionAABB(list) : null;
 }
 
-Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get makeContext() { return makeContext; }, get renderDocument() { return renderDocument; }, get renderNodeDoc() { return renderNodeDoc; }, get measureNode() { return measureNode; }, get nodeBox() { return nodeBox; }, get nodeAABB() { return nodeAABB; } }));
+Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get setAsyncHook() { return setAsyncHook; }, get makeContext() { return makeContext; }, get renderDocument() { return renderDocument; }, get renderNodeDoc() { return renderNodeDoc; }, get renderDocumentAsync() { return renderDocumentAsync; }, get measureNode() { return measureNode; }, get nodeBox() { return nodeBox; }, get nodeAABB() { return nodeAABB; } }));
 });
 __define('./engine/dither.js', function (__exports) {
 // Quantization of normalized float height to 8- or 16-bit integers.
@@ -1023,6 +1132,288 @@ function createNode(kind, doc) {
 const BLEND_MODES = { max: 'Union (max)', min: 'Clamp (min)', replace: 'Replace', cut: 'Cut below', keep: 'Keep below' };
 
 Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get KINDS() { return KINDS; }, get registerKind() { return registerKind; }, get schemaDefaults() { return schemaDefaults; }, get createNode() { return createNode; }, get BLEND_MODES() { return BLEND_MODES; } }));
+});
+__define('./engine/mesh.js', function (__exports) {
+// Mesh parsing (binary/ASCII STL, OBJ) and small rotation helpers. DOM-free.
+
+function parseMesh(name, buf) {
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  if (ext === 'obj') return parseOBJ(new TextDecoder().decode(buf));
+  if (ext === 'stl') return parseSTL(buf);
+  // sniff
+  const head = new TextDecoder().decode(new Uint8Array(buf, 0, Math.min(512, buf.byteLength)));
+  if (/^\s*(v |f |#|o |g |mtllib)/m.test(head) && !/^solid/.test(head)) return parseOBJ(new TextDecoder().decode(buf));
+  return parseSTL(buf);
+}
+
+function parseSTL(buf) {
+  const u8 = new Uint8Array(buf);
+  const isAscii = (() => {
+    if (u8.length < 84) return true;
+    const head = new TextDecoder().decode(u8.subarray(0, Math.min(1024, u8.length)));
+    if (!/^\s*solid/.test(head)) return false;
+    const n = new DataView(buf).getUint32(80, true);
+    return u8.length !== 84 + n * 50 && /facet\s+normal/.test(head);
+  })();
+  if (isAscii) return parseAsciiSTL(new TextDecoder().decode(u8));
+  const dv = new DataView(buf); const n = dv.getUint32(80, true);
+  const pos = new Float32Array(n * 9); let o = 84;
+  for (let i = 0; i < n; i++) {
+    o += 12; // face normal
+    for (let k = 0; k < 9; k++) { pos[i * 9 + k] = dv.getFloat32(o, true); o += 4; }
+    o += 2;
+  }
+  return finish(pos);
+}
+function parseAsciiSTL(text) {
+  const out = []; const re = /vertex\s+([-+0-9.eE]+)\s+([-+0-9.eE]+)\s+([-+0-9.eE]+)/g; let m;
+  while ((m = re.exec(text))) out.push(+m[1], +m[2], +m[3]);
+  const tris = Math.floor(out.length / 9);
+  return finish(Float32Array.from(out.slice(0, tris * 9)));
+}
+
+function parseOBJ(text) {
+  const v = []; const out = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (line[0] === 'v' && line[1] === ' ') { const p = line.trim().split(/\s+/); v.push(+p[1], +p[2], +p[3]); }
+    else if (line[0] === 'f' && line[1] === ' ') {
+      const idx = line.trim().split(/\s+/).slice(1).map(t => { let i = parseInt(t.split('/')[0], 10); if (i < 0) i = v.length / 3 + i + 1; return i - 1; });
+      for (let k = 1; k + 1 < idx.length; k++) for (const i of [idx[0], idx[k], idx[k + 1]]) out.push(v[i * 3], v[i * 3 + 1], v[i * 3 + 2]);
+    }
+  }
+  return finish(Float32Array.from(out));
+}
+function finish(pos) {
+  if (!pos.length) throw new Error('No triangles found in mesh');
+  return { positions: pos, triangles: pos.length / 9, bounds: meshBounds(pos) };
+}
+
+function meshBounds(pos) {
+  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < pos.length; i += 3) for (let k = 0; k < 3; k++) { const v = pos[i + k]; if (v < min[k]) min[k] = v; if (v > max[k]) max[k] = v; }
+  const center = [0, 1, 2].map(k => (min[k] + max[k]) / 2), size = [0, 1, 2].map(k => max[k] - min[k]);
+  return { min, max, center, size, radius: Math.hypot(size[0], size[1], size[2]) / 2 || 1 };
+}
+
+// ---- rotations: 3x3 row-major matrices; Euler angles in degrees, R = Rz * Ry * Rx
+const D = Math.PI / 180;
+function rotX(a) { const c = Math.cos(a * D), s = Math.sin(a * D); return [1, 0, 0, 0, c, -s, 0, s, c]; }
+function rotY(a) { const c = Math.cos(a * D), s = Math.sin(a * D); return [c, 0, s, 0, 1, 0, -s, 0, c]; }
+function rotZ(a) { const c = Math.cos(a * D), s = Math.sin(a * D); return [c, -s, 0, s, c, 0, 0, 0, 1]; }
+function mul3(a, b) { const o = new Array(9); for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) o[r * 3 + c] = a[r * 3] * b[c] + a[r * 3 + 1] * b[3 + c] + a[r * 3 + 2] * b[6 + c]; return o; }
+function apply3(m, v) { return [m[0] * v[0] + m[1] * v[1] + m[2] * v[2], m[3] * v[0] + m[4] * v[1] + m[5] * v[2], m[6] * v[0] + m[7] * v[1] + m[8] * v[2]]; }
+function eulerToMat(e) { return mul3(rotZ(e[2]), mul3(rotY(e[1]), rotX(e[0]))); }
+function matToEuler(m) {
+  // R = Rz*Ry*Rx  =>  m[6] = -sin(ry)
+  const sy = -m[6]; const ry = Math.asin(Math.max(-1, Math.min(1, sy)));
+  let rx, rz;
+  if (Math.abs(Math.cos(ry)) > 1e-6) { rx = Math.atan2(m[7], m[8]); rz = Math.atan2(m[3], m[0]); }
+  else { rx = Math.atan2(-m[5], m[4]); rz = 0; }
+  return [rx / D, ry / D, rz / D].map(v => +v.toFixed(3));
+}
+function snapEuler(e) { return e.map(v => { const r = Math.round(v / 90) * 90; return Math.abs(v - r) < 1e-3 ? (((r % 360) + 540) % 360) - 180 : v; }); }
+
+// Extents of the rotated bounding box in view space: x, y and distance (= -z) ranges.
+function rotatedExtents(bounds, m) {
+  const ex = [Infinity, -Infinity], ey = [Infinity, -Infinity], ed = [Infinity, -Infinity];
+  for (let i = 0; i < 8; i++) {
+    const c = [i & 1 ? bounds.max[0] : bounds.min[0], i & 2 ? bounds.max[1] : bounds.min[1], i & 4 ? bounds.max[2] : bounds.min[2]];
+    const p = apply3(m, [c[0] - bounds.center[0], c[1] - bounds.center[1], c[2] - bounds.center[2]]);
+    ex[0] = Math.min(ex[0], p[0]); ex[1] = Math.max(ex[1], p[0]); ey[0] = Math.min(ey[0], p[1]); ey[1] = Math.max(ey[1], p[1]);
+    ed[0] = Math.min(ed[0], -p[2]); ed[1] = Math.max(ed[1], -p[2]);
+  }
+  return { x: ex, y: ey, dist: ed };
+}
+
+// Build a binary STL from a triangle soup (used by tests and examples).
+function encodeBinarySTL(pos) {
+  const n = pos.length / 9; const out = new ArrayBuffer(84 + n * 50); const dv = new DataView(out);
+  dv.setUint32(80, n, true); let o = 84;
+  for (let i = 0; i < n; i++) { o += 12; for (let k = 0; k < 9; k++) { dv.setFloat32(o, pos[i * 9 + k], true); o += 4; } o += 2; }
+  return out;
+}
+
+Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get parseMesh() { return parseMesh; }, get parseSTL() { return parseSTL; }, get parseOBJ() { return parseOBJ; }, get meshBounds() { return meshBounds; }, get rotX() { return rotX; }, get rotY() { return rotY; }, get rotZ() { return rotZ; }, get mul3() { return mul3; }, get apply3() { return apply3; }, get eulerToMat() { return eulerToMat; }, get matToEuler() { return matToEuler; }, get snapEuler() { return snapEuler; }, get rotatedExtents() { return rotatedExtents; }, get encodeBinarySTL() { return encodeBinarySTL; } }));
+});
+__define('./engine/meshbake.js', function (__exports) {
+// WebGL2 orthographic depth baker and shaded preview for mesh import.
+//
+// View space: the mesh is centred on its bounding-box centre and rotated by R (3x3); the
+// camera looks down -Z. "dist" is -z (larger = farther from the camera). The bake window is
+// w x h pixels at `scale` pixels per model unit, centred on (pan[0], pan[1]) in view units.
+const { eulerToMat, apply3 } = __require('./engine/mesh.js');
+const UNCOVERED = 1e30;
+
+function createBaker(canvas) {
+  const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, preserveDrawingBuffer: true });
+  if (!gl) throw new Error('WebGL2 is required for mesh import');
+  const floatOk = !!gl.getExtension('EXT_color_buffer_float');
+
+  const depthProg = program(gl, `#version 300 es
+    in vec3 aPos; uniform mat3 uR; uniform vec3 uCenter; uniform vec2 uPan; uniform float uScale; uniform vec2 uSize; uniform float uRadius;
+    out float vDist;
+    void main(){ vec3 v = uR * (aPos - uCenter); vDist = -v.z;
+      gl_Position = vec4((v.x - uPan.x) * uScale / (uSize.x * 0.5), (v.y - uPan.y) * uScale / (uSize.y * 0.5), vDist / (uRadius * 1.05), 1.0); }`,
+    `#version 300 es
+    precision highp float; in float vDist; uniform int uPacked; uniform float uRadius; out vec4 o;
+    void main(){
+      if (uPacked == 1) { // 24-bit fixed-point fallback for GPUs without float render targets
+        float t = clamp((vDist + uRadius) / (2.0 * uRadius), 0.0, 0.999999);
+        vec3 enc = fract(vec3(1.0, 255.0, 65025.0) * t); enc -= enc.yzz * vec3(1.0 / 255.0, 1.0 / 255.0, 0.0);
+        o = vec4(enc, 1.0);
+      } else o = vec4(vDist, 0.0, 0.0, 1.0); }`);
+  const shadeProg = program(gl, `#version 300 es
+    in vec3 aPos; uniform mat3 uR; uniform vec3 uCenter; uniform mat4 uVP; out vec3 vPos;
+    void main(){ vec3 v = uR * (aPos - uCenter); vPos = v; gl_Position = uVP * vec4(v, 1.0); }`,
+    `#version 300 es
+    precision highp float; in vec3 vPos; uniform vec3 uEye; uniform vec2 uClip; out vec4 o;
+    void main(){ vec3 N = normalize(cross(dFdx(vPos), dFdy(vPos))); vec3 L = normalize(vec3(-0.4, 0.8, 0.9)); vec3 L2 = normalize(vec3(0.6, 0.2, -0.7));
+      float d = max(dot(N, L), 0.0) * 0.75 + max(dot(N, L2), 0.0) * 0.25 + 0.2; vec3 base = vec3(0.78, 0.74, 0.68);
+      float dist = -vPos.z; if (dist < uClip.x) base = vec3(0.55, 0.85, 0.55); else if (dist > uClip.y) base = vec3(0.9, 0.45, 0.45);
+      o = vec4(base * d, 1.0); }`);
+  const lineProg = program(gl, `#version 300 es
+    in vec3 aPos; uniform mat4 uVP; void main(){ gl_Position = uVP * vec4(aPos, 1.0); }`,
+    `#version 300 es
+    precision highp float; uniform vec4 uColor; out vec4 o; void main(){ o = uColor; }`);
+
+  const vbo = gl.createBuffer(); let count = 0, center = [0, 0, 0];
+  const lineVbo = gl.createBuffer();
+  let fbo = null, tex = null, rbo = null, fw = 0, fh = 0, packed = !floatOk;
+
+  function ensureFBO(w, h) {
+    if (fbo && fw === w && fh === h) return;
+    if (fbo) { gl.deleteFramebuffer(fbo); gl.deleteTexture(tex); gl.deleteRenderbuffer(rbo); }
+    fw = w; fh = h; fbo = gl.createFramebuffer(); tex = gl.createTexture(); rbo = gl.createRenderbuffer();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    if (packed) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    else gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, w, h, 0, gl.RED, gl.FLOAT, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.bindRenderbuffer(gl.RENDERBUFFER, rbo); gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, w, h);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, rbo);
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+      if (!packed) { packed = true; gl.bindFramebuffer(gl.FRAMEBUFFER, null); fw = 0; ensureFBO(w, h); return; }
+      throw new Error('Could not create bake framebuffer');
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+
+  const api = {
+    gl, canvas,
+    setMesh(mesh) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferData(gl.ARRAY_BUFFER, mesh.positions, gl.STATIC_DRAW);
+      count = mesh.positions.length / 3; center = mesh.bounds.center; api.mesh = mesh;
+    },
+    // Render depth (distance) into a w x h buffer. Returns {w, h, dist: Float32Array} with UNCOVERED where nothing was hit.
+    bakeDist(p, w, h) {
+      ensureFBO(w, h);
+      const R = eulerToMat(p.rot); const radius = api.mesh.bounds.radius + Math.hypot(p.pan[0], p.pan[1]);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.viewport(0, 0, w, h);
+      gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LESS); gl.disable(gl.BLEND); gl.disable(gl.CULL_FACE);
+      if (packed) gl.clearColor(1, 1, 1, 1); else gl.clearColor(UNCOVERED, 0, 0, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      gl.useProgram(depthProg.prog);
+      gl.uniformMatrix3fv(depthProg.u.uR, true, new Float32Array(R)); gl.uniform3fv(depthProg.u.uCenter, new Float32Array(center));
+      gl.uniform2f(depthProg.u.uPan, p.pan[0], p.pan[1]); gl.uniform1f(depthProg.u.uScale, p.scale); gl.uniform2f(depthProg.u.uSize, w, h); gl.uniform1f(depthProg.u.uRadius, radius);
+      gl.uniform1i(depthProg.u.uPacked, packed ? 1 : 0);
+      bindPos(depthProg.a.aPos); gl.drawArrays(gl.TRIANGLES, 0, count);
+      const dist = new Float32Array(w * h);
+      if (packed) {
+        // 24-bit fixed point normalised over [-radius, radius]; clear colour (all 255) marks uncovered pixels
+        const px = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+          const i = ((h - 1 - y) * w + x) * 4, o = y * w + x;
+          if (px[i] === 255 && px[i + 1] === 255 && px[i + 2] === 255) { dist[o] = UNCOVERED; continue; }
+          const t = px[i] / 255 + px[i + 1] / 65025 + px[i + 2] / 16581375;
+          dist[o] = t * 2 * radius - radius;
+        }
+      } else {
+        const buf = new Float32Array(w * h); gl.readPixels(0, 0, w, h, gl.RED, gl.FLOAT, buf);
+        for (let y = 0; y < h; y++) dist.set(buf.subarray((h - 1 - y) * w, (h - y) * w), y * w);
+      }
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      return { w, h, dist };
+    },
+    // Full bake: supersampled distance -> normalized height + coverage.
+    bake(p, w, h, ss = 2) {
+      const maxDim = Math.max(w, h); if (maxDim * ss > 8192) ss = 1;
+      const d = api.bakeDist({ ...p, scale: p.scale * ss }, w * ss, h * ss);
+      const height = new Float32Array(w * h), coverage = new Float32Array(w * h);
+      const span = Math.max(1e-9, p.far - p.near);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        let sum = 0, n = 0;
+        for (let j = 0; j < ss; j++) for (let i = 0; i < ss; i++) { const v = d.dist[(y * ss + j) * d.w + x * ss + i]; if (v < UNCOVERED) { n++; let hh = (p.far - v) / span; sum += hh < 0 ? 0 : hh > 1 ? 1 : hh; } }
+        const o = y * w + x;
+        if (n) { height[o] = sum / n; coverage[o] = n / (ss * ss); }
+      }
+      if (p.bg === 'far') { for (let i = 0; i < coverage.length; i++) { if (coverage[i] < 1) { height[i] = height[i] * coverage[i]; coverage[i] = 1; } } }
+      return { w, h, height, coverage };
+    },
+    // Statistics of a distance buffer: min/max over covered pixels and a histogram.
+    distStats(d, bins = 64, range) {
+      let min = Infinity, max = -Infinity, n = 0;
+      for (let i = 0; i < d.dist.length; i++) { const v = d.dist[i]; if (v >= UNCOVERED) continue; n++; if (v < min) min = v; if (v > max) max = v; }
+      const lo = range ? range[0] : min, hi = range ? range[1] : max; const hist = new Float32Array(bins);
+      if (n && hi > lo) for (let i = 0; i < d.dist.length; i++) { const v = d.dist[i]; if (v >= UNCOVERED) continue; const b = Math.min(bins - 1, Math.max(0, Math.floor((v - lo) / (hi - lo) * bins))); hist[b]++; }
+      let peak = 0; for (const v of hist) peak = Math.max(peak, v);
+      return { min, max, count: n, hist, peak, lo, hi };
+    },
+    // Shaded perspective preview into the visible canvas, with the bake box and the near/far planes.
+    renderPreview(p, cam, w, h) {
+      if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, w, h);
+      gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LESS); gl.clearColor(0.06, 0.065, 0.08, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      const R = eulerToMat(p.rot); const r = api.mesh.bounds.radius;
+      const eye = [cam.tx + Math.sin(cam.yaw) * Math.cos(cam.pitch) * cam.dist * r, cam.ty + Math.sin(cam.pitch) * cam.dist * r, cam.tz + Math.cos(cam.yaw) * Math.cos(cam.pitch) * cam.dist * r];
+      const VP = mul4(persp(45 * Math.PI / 180, w / h, r * 0.02, r * 40), lookAt(eye, [cam.tx, cam.ty, cam.tz], [0, 1, 0]));
+      gl.useProgram(shadeProg.prog); gl.uniformMatrix4fv(shadeProg.u.uVP, false, new Float32Array(VP));
+      gl.uniformMatrix3fv(shadeProg.u.uR, true, new Float32Array(R)); gl.uniform3fv(shadeProg.u.uCenter, new Float32Array(center));
+      gl.uniform3fv(shadeProg.u.uEye, new Float32Array(eye)); gl.uniform2f(shadeProg.u.uClip, p.near, p.far);
+      bindPos(shadeProg.a.aPos); gl.drawArrays(gl.TRIANGLES, 0, count);
+      // bake box and clip planes
+      const hw = p.w / p.scale / 2, hh = p.h / p.scale / 2, cx = p.pan[0], cy = p.pan[1];
+      const zN = -p.near, zF = -p.far;
+      const quad = z => [cx - hw, cy - hh, z, cx + hw, cy - hh, z, cx + hw, cy + hh, z, cx - hw, cy + hh, z];
+      gl.useProgram(lineProg.prog); gl.uniformMatrix4fv(lineProg.u.uVP, false, new Float32Array(VP));
+      gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
+      drawLines(lineProg, quad(zN), gl.LINE_LOOP, [0.4, 0.95, 0.4, 1]); drawFan(lineProg, quad(zN), [0.4, 0.95, 0.4, 0.18]);
+      drawLines(lineProg, quad(zF), gl.LINE_LOOP, [0.95, 0.4, 0.4, 1]); drawFan(lineProg, quad(zF), [0.95, 0.4, 0.4, 0.18]);
+      const qa = quad(zN), qb = quad(zF); const edges = []; for (let i = 0; i < 4; i++) edges.push(qa[i * 3], qa[i * 3 + 1], qa[i * 3 + 2], qb[i * 3], qb[i * 3 + 1], qb[i * 3 + 2]);
+      drawLines(lineProg, edges, gl.LINES, [0.6, 0.7, 1, 0.8]);
+      // view axis through the centre of the window
+      drawLines(lineProg, [cx, cy, zN + (p.far - p.near) * 0.6, cx, cy, zF - (p.far - p.near) * 0.6], gl.LINES, [1, 1, 1, 0.35]);
+      gl.depthMask(true); gl.disable(gl.BLEND);
+      return { VP, eye };
+    },
+    project(VP, v, w, h) { const x = VP[0] * v[0] + VP[4] * v[1] + VP[8] * v[2] + VP[12], y = VP[1] * v[0] + VP[5] * v[1] + VP[9] * v[2] + VP[13], ww = VP[3] * v[0] + VP[7] * v[1] + VP[11] * v[2] + VP[15]; return { x: (x / ww * 0.5 + 0.5) * w, y: (0.5 - y / ww * 0.5) * h, w: ww }; },
+    dispose() { gl.getExtension('WEBGL_lose_context')?.loseContext(); },
+  };
+  function bindPos(loc) { gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 3, gl.FLOAT, false, 0, 0); }
+  function drawLines(pr, arr, mode, color) { gl.bindBuffer(gl.ARRAY_BUFFER, lineVbo); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(arr), gl.DYNAMIC_DRAW); gl.enableVertexAttribArray(pr.a.aPos); gl.vertexAttribPointer(pr.a.aPos, 3, gl.FLOAT, false, 0, 0); gl.uniform4fv(pr.u.uColor, color); gl.drawArrays(mode, 0, arr.length / 3); }
+  function drawFan(pr, arr, color) { drawLines(pr, arr, gl.TRIANGLE_FAN, color); }
+  return api;
+}
+
+function program(gl, vs, fs) {
+  const sh = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; };
+  const prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  const u = {}, a = {};
+  const nu = gl.getProgramParameter(prog, gl.ACTIVE_UNIFORMS); for (let i = 0; i < nu; i++) { const n = gl.getActiveUniform(prog, i).name; u[n] = gl.getUniformLocation(prog, n); }
+  const na = gl.getProgramParameter(prog, gl.ACTIVE_ATTRIBUTES); for (let i = 0; i < na; i++) { const n = gl.getActiveAttrib(prog, i).name; a[n] = gl.getAttribLocation(prog, n); }
+  return { prog, u, a };
+}
+function persp(fov, ar, n, f) { const t = 1 / Math.tan(fov / 2); return [t / ar, 0, 0, 0, 0, t, 0, 0, 0, 0, (f + n) / (n - f), -1, 0, 0, 2 * f * n / (n - f), 0]; }
+function lookAt(e, c, u) {
+  const zx = e[0] - c[0], zy = e[1] - c[1], zz = e[2] - c[2]; let l = Math.hypot(zx, zy, zz) || 1; const z = [zx / l, zy / l, zz / l];
+  let x = [u[1] * z[2] - u[2] * z[1], u[2] * z[0] - u[0] * z[2], u[0] * z[1] - u[1] * z[0]]; l = Math.hypot(...x) || 1; x = x.map(v => v / l);
+  const y = [z[1] * x[2] - z[2] * x[1], z[2] * x[0] - z[0] * x[2], z[0] * x[1] - z[1] * x[0]];
+  return [x[0], y[0], z[0], 0, x[1], y[1], z[1], 0, x[2], y[2], z[2], 0, -(x[0] * e[0] + x[1] * e[1] + x[2] * e[2]), -(y[0] * e[0] + y[1] * e[1] + y[2] * e[2]), -(z[0] * e[0] + z[1] * e[1] + z[2] * e[2]), 1];
+}
+function mul4(a, b) { const o = new Array(16); for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) { let s = 0; for (let k = 0; k < 4; k++) s += a[k * 4 + j] * b[i * 4 + k]; o[i * 4 + j] = s; } return o; }
+
+Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get createBaker() { return createBaker; }, get persp() { return persp; }, get lookAt() { return lookAt; }, get mul4() { return mul4; }, get UNCOVERED() { return UNCOVERED; } }));
 });
 __define('./engine/modifiers.js', function (__exports) {
 // Modifiers transform a raster in place. Pointwise ones ignore the pixel scale;
@@ -1464,6 +1855,70 @@ function renderShape(p, cw, ch, coverageOnly = false) {
 
 Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get ellipseDist() { return ellipseDist; }, get rectDist() { return rectDist; }, get shapeDist() { return shapeDist; }, get PROFILES() { return PROFILES; }, get profileT() { return profileT; }, get renderShape() { return renderShape; } }));
 });
+__define('./engine/toolkit.js', function (__exports) {
+// Helper library available to extension tools as `lib`. Written as one self-contained
+// function so it can be stringified into the tool Worker and also used on the main thread.
+//
+// A tool's render body runs as  (p, r, lib) => { ... }  where
+//   p    the tool's parameters (from its schema)
+//   r    { w, h, height: Float32Array, coverage: Float32Array, scale, nat }
+//        w x h pixels covering the natural box nat = {w, h} in local units, centred at (0,0);
+//        scale = pixels per local unit
+//   lib  this library
+function makeLib(r) {
+  const clamp = (v, a, b) => v < a ? a : v > b ? b : v, clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
+  const hypot = Math.hypot;
+  const hash = (x, y) => { let h = (x * 374761393 + y * 668265263) | 0; h = (h ^ (h >>> 13)) * 1274126177 | 0; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+  const noise2 = (x, y) => { const x0 = Math.floor(x), y0 = Math.floor(y), tx = x - x0, ty = y - y0; const sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty); const a = hash(x0, y0), b = hash(x0 + 1, y0), c = hash(x0, y0 + 1), d = hash(x0 + 1, y0 + 1); return (a + (b - a) * sx) * (1 - sy) + (c + (d - c) * sx) * sy; };
+  const sdf = {
+    circle: (u, v, rad) => rad - hypot(u, v),
+    ellipse: (u, v, a, b) => { if (a <= 0 || b <= 0) return -1e9; const rr = Math.sqrt(u * u / (a * a) + v * v / (b * b)); if (rr < 1e-6) return Math.min(a, b); const g = Math.sqrt(u * u / (a * a * a * a) + v * v / (b * b * b * b)) / rr; return (1 - rr) / g; },
+    box: (u, v, hw, hh, rc = 0) => { rc = Math.min(rc, hw, hh); const qx = Math.abs(u) - (hw - rc), qy = Math.abs(v) - (hh - rc); return -(hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - rc); },
+    ring: (u, v, rOut, rIn) => { const d = hypot(u, v); return Math.min(rOut - d, d - rIn); },
+    segment: (u, v, ax, ay, bx, by, rad = 0) => { const px = u - ax, py = v - ay, dx = bx - ax, dy = by - ay; const t = clamp01((px * dx + py * dy) / ((dx * dx + dy * dy) || 1e-12)); return rad - hypot(px - dx * t, py - dy * t); },
+    polygon: (u, v, pts) => { // pts: [[x,y],...] closed; positive inside
+      let d = Infinity, inside = false; const n = pts.length;
+      for (let i = 0, j = n - 1; i < n; j = i++) { const [xi, yi] = pts[i], [xj, yj] = pts[j]; const ex = xj - xi, ey = yj - yi; const t = clamp01(((u - xi) * ex + (v - yi) * ey) / ((ex * ex + ey * ey) || 1e-12)); d = Math.min(d, hypot(u - xi - ex * t, v - yi - ey * t)); if ((yi > v) !== (yj > v) && u < (xj - xi) * (v - yi) / (yj - yi) + xi) inside = !inside; }
+      return inside ? d : -d;
+    },
+    star: (u, v, R, rIn, n = 5, rot = 0) => { const pts = []; for (let i = 0; i < n * 2; i++) { const a = rot + i * Math.PI / n - Math.PI / 2; const rr = i % 2 ? rIn : R; pts.push([Math.cos(a) * rr, Math.sin(a) * rr]); } return sdf.polygon(u, v, pts); },
+    union: (a, b) => Math.max(a, b), intersect: (a, b) => Math.min(a, b), subtract: (a, b) => Math.min(a, -b),
+    rotate: (u, v, deg) => { const c = Math.cos(deg * Math.PI / 180), s = Math.sin(deg * Math.PI / 180); return [u * c + v * s, -u * s + v * c]; },
+  };
+  const profile = (kind, d, dmax, bevel = 1) => {
+    if (kind === 'linear') return clamp01(d / dmax);
+    if (kind === 'dome') { const k = clamp01(d / dmax); return Math.sqrt(1 - (1 - k) * (1 - k)); }
+    if (kind === 'cosine') { const k = clamp01(d / dmax); return 0.5 - 0.5 * Math.cos(Math.PI * k); }
+    if (kind === 'bevel') return clamp01(d / Math.max(1e-6, bevel));
+    return 1;
+  };
+  const lib = {
+    clamp, clamp01, mix: (a, b, t) => a + (b - a) * t, smoothstep: (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); },
+    hash, noise2, fbm: (x, y, oct = 4, gain = 0.5) => { let s = 0, a = 1, f = 1, norm = 0; for (let i = 0; i < oct; i++) { s += a * noise2(x * f, y * f); norm += a; a *= gain; f *= 2; } return s / norm; },
+    sdf, profile,
+    // coverage (0..1) from a signed distance in local units, antialiased over one pixel
+    aa: d => clamp01(d * r.scale + 0.5),
+    // local coordinates of a pixel centre
+    coord: (x, y) => [(x + 0.5) / r.w * r.nat.w - r.nat.w / 2, (y + 0.5) / r.h * r.nat.h - r.nat.h / 2],
+    // iterate every pixel: cb(u, v, x, y) returns a height (coverage 1), [height, coverage], or null to skip
+    each: cb => { for (let y = 0; y < r.h; y++) { const v = (y + 0.5) / r.h * r.nat.h - r.nat.h / 2; for (let x = 0; x < r.w; x++) { const u = (x + 0.5) / r.w * r.nat.w - r.nat.w / 2; const o = cb(u, v, x, y); if (o == null) continue; let h, c; if (typeof o === 'number') { h = o; c = 1; } else { h = o[0]; c = o[1]; } if (!(c > 0)) continue; const i = y * r.w + x; r.height[i] = clamp01(h); r.coverage[i] = clamp01(c); } } },
+    // paint a distance field: height from a profile between low/high, coverage antialiased (max-composited with what is there)
+    paint: (d, height, coverage = null) => { /* used inside each(): returns [h, c] */ const c = coverage == null ? clamp01(d * r.scale + 0.5) : coverage; return c > 0 ? [height, c] : null; },
+    set: (x, y, h, c = 1) => { if (x < 0 || y < 0 || x >= r.w || y >= r.h) return; const i = y * r.w + x; r.height[i] = clamp01(h); r.coverage[i] = clamp01(c); },
+    // union-composite a value into a pixel (max height where both covered)
+    add: (x, y, h, c = 1) => { if (x < 0 || y < 0 || x >= r.w || y >= r.h || !(c > 0)) return; const i = y * r.w + x; const ac = r.coverage[i]; if (ac <= 0) { r.height[i] = clamp01(h); r.coverage[i] = clamp01(c); return; } const nc = ac + c - ac * c; const m = Math.max(r.height[i], h); r.height[i] = clamp01((ac * c * m + ac * (1 - c) * r.height[i] + c * (1 - ac) * h) / nc); r.coverage[i] = clamp01(nc); },
+    // 2D canvas in local units (origin at the centre, y down). Draw with white; then fromCanvas() reads alpha as coverage.
+    canvas: () => { if (typeof OffscreenCanvas === 'undefined') throw new Error('OffscreenCanvas is not available'); const c = new OffscreenCanvas(r.w, r.h); const ctx = c.getContext('2d'); ctx.setTransform(r.w / r.nat.w, 0, 0, r.h / r.nat.h, r.w / 2, r.h / 2); ctx.fillStyle = '#fff'; ctx.strokeStyle = '#fff'; ctx._canvas = c; return ctx; },
+    fromCanvas: (ctx, height = 1) => { const c = ctx._canvas || ctx.canvas; const d = ctx.getImageData(0, 0, c.width, c.height).data; for (let i = 0, k = 3; i < r.w * r.h; i++, k += 4) { const a = d[k] / 255; if (a > 0) lib.add(i % r.w, (i / r.w) | 0, height, a); } },
+  };
+  return lib;
+}
+
+// Source of makeLib for embedding into a Worker.
+const LIB_SOURCE = makeLib.toString();
+
+Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get makeLib() { return makeLib; }, get LIB_SOURCE() { return LIB_SOURCE; } }));
+});
 __define('./engine/transform.js', function (__exports) {
 // Node transforms and box geometry. A node's transform is a centre (x, y) in
 // document pixels, scale factors sx/sy applied to the natural size, and a
@@ -1587,12 +2042,14 @@ const { createRaster, downsampleBox } = __require('./engine/raster.js');
 // Image assets: { id, dataURL, w, h, bits, full: Uint16Array, small: {w, h, data: Float32Array} }
 const PREVIEW_MAX = 1024;
 
-function makeImageAsset(dataURL, w, h, bits, u16) {
+function makeImageAsset(dataURL, w, h, bits, u16, cov = null, covDataURL = null) {
   const f = Math.max(1, Math.ceil(Math.max(w, h) / PREVIEW_MAX));
   const f32 = new Float32Array(u16.length);
   for (let i = 0; i < u16.length; i++) f32[i] = u16[i] / 65535;
   const small = downsampleBox(f32, w, h, f);
-  return { dataURL, w, h, bits, full: u16, small, _fullF32: f === 1 ? f32 : null };
+  const asset = { dataURL, w, h, bits, full: u16, small, _fullF32: f === 1 ? f32 : null };
+  if (cov) { asset.cov = cov; asset.covSmall = downsampleBox(cov, w, h, f).data; asset.covDataURL = covDataURL; }
+  return asset;
 }
 
 registerKind({
@@ -1603,6 +2060,7 @@ registerKind({
   hint: 'Use a Levels or Curve modifier to remap the value range. With value 0 transparent, the black background of a scan never covers layers below.',
   measure(n, ctx) { const im = ctx.assets.images[n.params.imageId]; return im ? { w: im.w, h: im.h } : { w: 256, h: 256 }; },
   cacheKey(n) { return n.params.imageId + '|' + (n.params.zeroAlpha ? 1 : 0); },
+  // hidden for mesh layers (their coverage comes from the bake)
   render(n, { full, ctx }) {
     const im = ctx.assets.images[n.params.imageId]; if (!im) return null;
     let src, w, h;
@@ -1612,7 +2070,8 @@ registerKind({
     } else { src = im.small.data; w = im.small.w; h = im.small.h; }
     const r = createRaster(w, h);
     r.height.set(src);
-    if (n.params.zeroAlpha) { for (let i = 0; i < src.length; i++) r.coverage[i] = src[i] > 0 ? 1 : 0; }
+    if (im.cov) r.coverage.set(full ? im.cov : im.covSmall);
+    else if (n.params.zeroAlpha) { for (let i = 0; i < src.length; i++) r.coverage[i] = src[i] > 0 ? 1 : 0; }
     else r.coverage.fill(1);
     return r;
   },
@@ -1639,6 +2098,22 @@ registerKind({
   init(n, doc) { const s = Math.round(Math.min(doc.w, doc.h) * 0.6); n.params.w = s; n.params.h = s; },
   measure(n) { return { w: n.params.w, h: n.params.h }; },
   render(n, { cw, ch }) { const p = n.params; return renderShape({ shape: p.shape, w: p.w, h: p.h, inner: p.inner, corner: p.corner, profile: 'flat', low: 0, high: 0 }, cw, ch, true); },
+});
+
+Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({  }));
+});
+__define('./kinds/mesh.js', function (__exports) {
+const { registerKind, KINDS } = __require('./engine/kinds.js');
+__require('./kinds/image.js');
+// A mesh layer is a baked depth image (an image asset with coverage) that remembers the
+// mesh it came from and the bake parameters, so it can be re-baked from the import dialog.
+registerKind({
+  kind: 'mesh', label: 'Mesh', icon: '◭',
+  schema: {},
+  hint: 'A depth "screenshot" of a 3D model. Re-bake to change orientation, framing, resolution or the clipping planes.',
+  measure(n, ctx) { return KINDS.image.measure(n, ctx); },
+  cacheKey(n) { return 'mesh|' + n.params.imageId; },
+  render(n, opts) { return KINDS.image.render(n, opts); },
 });
 
 Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({  }));
@@ -1760,13 +2235,406 @@ registerKind({
 
 Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get TEXT_LAYOUTS() { return TEXT_LAYOUTS; }, get GENERIC_FONTS() { return GENERIC_FONTS; }, get fontsVersion() { return fontsVersion; }, get bumpFontsVersion() { return bumpFontsVersion; }, get fontString() { return fontString; } }));
 });
+__define('./kinds/tool.js', function (__exports) {
+// Extension tools: JSON documents with a parameter schema and JavaScript measure/render
+// bodies. Each registered tool becomes a node kind "tool:<id>" whose raster is produced
+// in a Worker (with a timeout) from the tool's render function.
+const { registerKind, KINDS, schemaDefaults } = __require('./engine/kinds.js');
+const { createRaster } = __require('./engine/raster.js');
+const { makeLib, LIB_SOURCE } = __require('./engine/toolkit.js');
+const TOOL_FORMAT = 'depthcad-tool/1';
+const tools = {}; // id -> definition (registered kinds)
+
+function validateTool(def) {
+  const errors = [];
+  if (!def || typeof def !== 'object') return ['Tool must be an object'];
+  if (def.format !== TOOL_FORMAT) errors.push(`format must be "${TOOL_FORMAT}"`);
+  if (!def.id || !/^[a-z0-9][a-z0-9-_]*$/i.test(def.id)) errors.push('id must be a short identifier (letters, digits, - or _)');
+  if (!def.name) errors.push('name is required');
+  if (!def.schema || typeof def.schema !== 'object') errors.push('schema must be an object of parameters');
+  else for (const [k, s] of Object.entries(def.schema)) { if (!s || !s.type) errors.push(`schema.${k} needs a type`); else if (!['number', 'int', 'bool', 'enum', 'depth', 'text', 'string'].includes(s.type)) errors.push(`schema.${k}: unsupported type ${s.type}`); if (s.type === 'enum' && !s.options) errors.push(`schema.${k}: enum needs options`); }
+  if (typeof def.render !== 'string' || !def.render.trim()) errors.push('render must be a string of JavaScript (function body)');
+  if (typeof def.measure !== 'string' || !def.measure.trim()) errors.push('measure must be a string of JavaScript returning {w, h}');
+  try { if (def.measure) new Function('p', 'lib', def.measure); } catch (e) { errors.push('measure does not compile: ' + e.message); }
+  try { if (def.render) new Function('p', 'r', 'lib', def.render); } catch (e) { errors.push('render does not compile: ' + e.message); }
+  return errors;
+}
+
+function registerTool(def) {
+  const errors = validateTool(def); if (errors.length) throw new Error(errors.join('; '));
+  const kind = 'tool:' + def.id;
+  const measureFn = new Function('p', 'lib', def.measure);
+  tools[def.id] = def;
+  registerKind({
+    kind, label: def.name, icon: '✦', isTool: true, tool: def,
+    schema: def.schema, hint: def.description || '',
+    measure(n) { try { const m = measureFn(n.params, makeLib({ w: 1, h: 1, scale: 1, nat: { w: 1, h: 1 }, height: new Float32Array(1), coverage: new Float32Array(1) })); return { w: Math.max(1, +m.w || 1), h: Math.max(1, +m.h || 1) }; } catch (e) { return { w: 100, h: 100 }; } },
+    cacheKey(n) { return JSON.stringify(n.params) + '|' + def.version + '|' + def._rev; },
+    renderAsync(n, { cw, ch, ctx }) { const nat = KINDS[kind].measure(n); return runTool(def, n.params, cw, ch, nat); },
+  });
+  def._rev = (def._rev || 0) + 1;
+  return kind;
+}
+function unregisterTool(id) { delete tools[id]; delete KINDS['tool:' + id]; }
+function toolDefaults(def) { return schemaDefaults(def.schema); }
+
+// ---- worker runtime
+const WORKER_SRC = `'use strict';
+const makeLib = ${LIB_SOURCE};
+self.onmessage = e => {
+  const { id, code, params, w, h, nat } = e.data;
+  try {
+    const height = new Float32Array(w * h), coverage = new Float32Array(w * h);
+    const r = { w, h, height, coverage, scale: w / nat.w, nat };
+    const lib = makeLib(r);
+    const fn = new Function('p', 'r', 'lib', code);
+    fn(params, r, lib);
+    self.postMessage({ id, height, coverage }, [height.buffer, coverage.buffer]);
+  } catch (err) { self.postMessage({ id, error: String(err && err.stack || err) }); }
+};`;
+let worker = null, seq = 0; const pending = new Map();
+const TIMEOUT_MS = 20000;
+function getWorker() {
+  if (worker) return worker;
+  try {
+    worker = new Worker(URL.createObjectURL(new Blob([WORKER_SRC], { type: 'text/javascript' })));
+    worker.onmessage = e => { const p = pending.get(e.data.id); if (!p) return; pending.delete(e.data.id); clearTimeout(p.timer); if (e.data.error) p.reject(new Error(e.data.error)); else p.resolve(e.data); };
+    worker.onerror = e => { for (const [id, p] of pending) { clearTimeout(p.timer); p.reject(new Error('Tool worker error: ' + (e.message || 'unknown'))); } pending.clear(); };
+  } catch (e) { worker = null; }
+  return worker;
+}
+function killWorker() { if (worker) { worker.terminate(); worker = null; } for (const [, p] of pending) { clearTimeout(p.timer); p.reject(new Error('Tool timed out')); } pending.clear(); }
+
+function runTool(def, params, w, h, nat) {
+  const wk = getWorker();
+  if (!wk) return runToolSync(def, params, w, h, nat);
+  return new Promise((resolve, reject) => {
+    const id = ++seq;
+    const timer = setTimeout(() => { if (pending.has(id)) { pending.delete(id); killWorker(); reject(new Error(`Tool "${def.name}" timed out after ${TIMEOUT_MS / 1000}s`)); } }, TIMEOUT_MS);
+    pending.set(id, { resolve: d => { const r = createRaster(w, h); r.height = d.height; r.coverage = d.coverage; resolve(r); }, reject, timer });
+    wk.postMessage({ id, code: def.render, params, w, h, nat });
+  });
+}
+// Main-thread fallback (no Worker available) and quick validation renders.
+async function runToolSync(def, params, w, h, nat) {
+  const r = createRaster(w, h); const rr = { w, h, height: r.height, coverage: r.coverage, scale: w / nat.w, nat };
+  const fn = new Function('p', 'r', 'lib', def.render); fn(params, rr, makeLib(rr)); return r;
+}
+// Try a small render to surface runtime errors; returns null or an error message.
+async function testTool(def) {
+  try {
+    const params = toolDefaults(def); const measureFn = new Function('p', 'lib', def.measure);
+    const m = measureFn(params, makeLib({ w: 1, h: 1, scale: 1, nat: { w: 1, h: 1 }, height: new Float32Array(1), coverage: new Float32Array(1) }));
+    if (!m || !(m.w > 0) || !(m.h > 0)) return 'measure must return {w, h} with positive numbers';
+    const nat = { w: +m.w, h: +m.h }; const s = 96 / Math.max(nat.w, nat.h);
+    const r = await runTool(def, params, Math.max(1, Math.round(nat.w * s)), Math.max(1, Math.round(nat.h * s)), nat);
+    let cov = 0; for (let i = 0; i < r.coverage.length; i++) cov += r.coverage[i];
+    return cov > 0 ? null : 'render produced no coverage (nothing drawn) with the default parameters';
+  } catch (e) { return String(e.message || e); }
+}
+
+Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get TOOL_FORMAT() { return TOOL_FORMAT; }, get tools() { return tools; }, get validateTool() { return validateTool; }, get registerTool() { return registerTool; }, get unregisterTool() { return unregisterTool; }, get toolDefaults() { return toolDefaults; }, get runTool() { return runTool; }, get runToolSync() { return runToolSync; }, get testTool() { return testTool; } }));
+});
+__define('./tools/builtin.js', function (__exports) {
+// Built-in example tools. These are ordinary tool documents; users and the agent write the same format.
+const BUILTIN_TOOLS = [
+  {
+    format: 'depthcad-tool/1', id: 'star-ring', name: 'Ring of stars', version: 1,
+    description: 'N five-pointed stars arranged on a circle, each with a height profile.',
+    schema: {
+      count: { type: 'int', label: 'Stars', default: 12, min: 1, max: 200, step: 1, slider: true },
+      radius: { type: 'number', label: 'Ring radius (px)', default: 300, min: 1, max: 4000, step: 1, slider: true },
+      size: { type: 'number', label: 'Star size (px)', default: 60, min: 1, max: 2000, step: 1, slider: true },
+      inner: { type: 'number', label: 'Star inner %', default: 40, min: 5, max: 95, step: 1, slider: true },
+      points: { type: 'int', label: 'Points', default: 5, min: 3, max: 12, step: 1, slider: true },
+      profile: { type: 'enum', label: 'Profile', default: 'dome', options: { flat: 'Flat', linear: 'Cone', dome: 'Dome', cosine: 'Smooth' } },
+      high: { type: 'depth', label: 'Height', default: 1 },
+      low: { type: 'depth', label: 'Base height', default: 0 },
+      spin: { type: 'number', label: 'Spin (°)', default: 0, min: -180, max: 180, step: 1, slider: true },
+    },
+    measure: 'return { w: 2 * (p.radius + p.size), h: 2 * (p.radius + p.size) };',
+    render: `const n = Math.max(1, p.count | 0);
+lib.each((u, v) => {
+  let best = -1e9;
+  for (let i = 0; i < n; i++) {
+    const a = i / n * Math.PI * 2 + p.spin * Math.PI / 180;
+    const cx = Math.cos(a) * p.radius, cy = Math.sin(a) * p.radius;
+    const [lu, lv] = lib.sdf.rotate(u - cx, v - cy, -a * 180 / Math.PI - 90);
+    best = Math.max(best, lib.sdf.star(lu, lv, p.size, p.size * p.inner / 100, p.points));
+  }
+  const c = lib.aa(best); if (c <= 0) return null;
+  const t = lib.profile(p.profile, best, p.size * p.inner / 100 * 0.6);
+  return [p.low + (p.high - p.low) * t, c];
+});`,
+  },
+  {
+    format: 'depthcad-tool/1', id: 'noise-texture', name: 'Noise texture', version: 1,
+    description: 'A rectangle filled with fractal noise, for hammered or stone textures.',
+    schema: {
+      w: { type: 'number', label: 'Width (px)', default: 600, min: 1, max: 8192, step: 1 },
+      h: { type: 'number', label: 'Height (px)', default: 400, min: 1, max: 8192, step: 1 },
+      cell: { type: 'number', label: 'Feature size (px)', default: 60, min: 2, max: 2000, step: 1, slider: true },
+      octaves: { type: 'int', label: 'Detail (octaves)', default: 4, min: 1, max: 8, step: 1, slider: true },
+      low: { type: 'depth', label: 'Low', default: 0.2 },
+      high: { type: 'depth', label: 'High', default: 0.6 },
+      seed: { type: 'number', label: 'Seed', default: 0, min: 0, max: 1000, step: 1 },
+    },
+    measure: 'return { w: p.w, h: p.h };',
+    render: `lib.each((u, v) => {
+  const n = lib.fbm((u + p.seed * 1000) / p.cell, (v + p.seed * 700) / p.cell, p.octaves);
+  return p.low + (p.high - p.low) * n;
+});`,
+  },
+  {
+    format: 'depthcad-tool/1', id: 'text-arc', name: 'Text on an arc', version: 1,
+    description: 'Text laid out along a circular arc, inside or outside a ring. Uses the tool canvas for glyphs.',
+    schema: {
+      text: { type: 'text', label: 'Text', default: 'AROUND THE CIRCLE' },
+      radius: { type: 'number', label: 'Radius (px)', default: 400, min: 10, max: 8000, step: 1, slider: true },
+      size: { type: 'number', label: 'Font size (px)', default: 60, min: 4, max: 2000, step: 1 },
+      family: { type: 'string', label: 'Font family', default: 'Helvetica' },
+      weight: { type: 'enum', label: 'Weight', default: '700', options: { 400: 'Regular', 700: 'Bold', 900: 'Black' } },
+      start: { type: 'number', label: 'Start angle (°)', default: -90, min: -360, max: 360, step: 1, slider: true },
+      spacing: { type: 'number', label: 'Letter spacing (°)', default: 0, min: -10, max: 30, step: 0.1, slider: true },
+      inside: { type: 'bool', label: 'Inside of the circle (reads clockwise, glyph tops toward the centre)', default: false },
+      value: { type: 'depth', label: 'Value', default: 1 },
+    },
+    measure: 'return { w: 2 * (p.radius + p.size * 1.2), h: 2 * (p.radius + p.size * 1.2) };',
+    render: `const ctx = lib.canvas();
+ctx.font = p.weight + ' ' + p.size + 'px "' + p.family + '"'; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'center';
+const chars = [...String(p.text)];
+const widths = chars.map(ch => ctx.measureText(ch).width);
+const R = p.inside ? p.radius - p.size * 0.15 : p.radius + p.size * 0.15;
+const dir = p.inside ? -1 : 1;
+let ang = p.start * Math.PI / 180;
+for (let i = 0; i < chars.length; i++) {
+  const half = widths[i] / 2 / R;
+  ang += dir * half;
+  ctx.save(); ctx.rotate(ang + (p.inside ? -Math.PI / 2 : Math.PI / 2)); ctx.translate(0, p.inside ? R : -R);
+  if (p.inside) ctx.rotate(Math.PI);
+  ctx.fillText(chars[i], 0, p.inside ? -p.size * 0.35 : p.size * 0.35);
+  ctx.restore();
+  ang += dir * (half + p.spacing * Math.PI / 180);
+}
+lib.fromCanvas(ctx, p.value);`,
+  },
+];
+
+Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get BUILTIN_TOOLS() { return BUILTIN_TOOLS; } }));
+});
+__define('./ui/agent.js', function (__exports) {
+// Optional AI assistant: a chat drawer that drives the command API and can write tools.
+// Providers: Anthropic (official SDK loaded on demand), OpenAI, Google. Keys stay in localStorage.
+const { state, findNode, walk, depthToDisplay, UNITS } = __require('./app/state.js');
+const cmd = __require('./app/commands.js');
+const { undo, undoDepth } = __require('./app/history.js');
+const { valueAt, getComposite } = __require('./app/render.js');
+const { KINDS } = __require('./engine/kinds.js');
+const { MODIFIERS } = __require('./engine/modifiers.js');
+const { installTool, addToolNode } = __require('./ui/tools.js');
+const { $, el, btn } = __require('./ui/dom.js');
+const SETTINGS_KEY = 'depthcad.ai';
+const DEFAULT_MODELS = { anthropic: 'claude-opus-5', openai: 'gpt-5', google: 'gemini-2.5-pro' };
+let settings = { provider: 'anthropic', models: { ...DEFAULT_MODELS }, keys: {} };
+try { Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); settings.models = { ...DEFAULT_MODELS, ...(settings.models || {}) }; settings.keys = settings.keys || {}; } catch (e) { }
+function saveSettings() { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) { } }
+
+// ---------------------------------------------------------------- document summary & tools for the model
+function summarizeNode(n) {
+  const b = cmd.boxOf(n); const def = KINDS[n.kind] || {};
+  const o = { id: n.id, kind: n.kind, name: n.name, x: +n.x.toFixed(1), y: +n.y.toFixed(1), w: +b.w.toFixed(1), h: +b.h.toFixed(1), rot: n.rot, blend: n.blend, visible: n.visible };
+  if (n.kind !== 'group') { const p = { ...n.params }; delete p.imageId; delete p.meshId; delete p.bake; o.params = p; }
+  if (n.modifiers && n.modifiers.length) o.modifiers = n.modifiers.map(m => { const c = { ...m }; delete c.enabled; return c; });
+  if (n.kind === 'group') o.children = n.children.map(summarizeNode);
+  if (def.isMask) o.note = 'mask: clips siblings above it in its group';
+  if (n._error) o.error = n._error;
+  return o;
+}
+function kindSchemas() {
+  const out = {};
+  for (const [k, d] of Object.entries(KINDS)) { if (k === 'group' || k === 'mesh' || k === 'image') continue; out[k] = Object.fromEntries(Object.entries(d.schema || {}).filter(([, s]) => !s.hidden).map(([key, s]) => [key, { type: s.type, default: s.default, ...(s.min != null ? { min: s.min } : {}), ...(s.max != null ? { max: s.max } : {}), ...(s.options ? { options: Object.keys(s.options) } : {}) }])); if (d.sizeInParams) out[k]._size = 'w/h in params'; }
+  return out;
+}
+function documentSummary() {
+  return {
+    document: { width: state.doc.w, height: state.doc.h, background: state.doc.bg, displayUnit: UNITS[state.doc.unit] },
+    selection: state.sel,
+    layers_bottom_to_top: state.root.children.map(summarizeNode),
+    kinds: kindSchemas(),
+    modifiers: Object.fromEntries(Object.entries(MODIFIERS).map(([k, d]) => [k, Object.keys(d.schema)])),
+    tools_in_project: Object.values(state.tools).map(t => ({ kind: 'tool:' + t.id, name: t.name, schema: t.schema })),
+  };
+}
+
+const SYSTEM = () => `You are the assistant inside DepthCAD, a browser app that builds grayscale depth maps for laser engraving by compositing layers.
+Conventions: depth values are normalized floats 0..1 (0 = deepest/farthest, 1 = highest); the user sees them as ${UNITS[state.doc.unit]}. Coordinates are document pixels, origin top-left, y down; every layer has a centre (x, y), scale (sx, sy), rotation in degrees, a blend mode (max = union, min = clamp, replace, cut = erase below inside, keep = erase below outside), and a modifier stack (levels, curve, clamp, feather, blur, offset). Layers composite bottom to top with per-pixel max. Groups contain layers; a mask node clips the siblings above it inside its group. Shapes and masks store their size in params.w/params.h; images and text use sx/sy.
+You act through tools: call get_document first to see the current state, then run_commands to change it. Batch several commands in one run_commands call. Report ids returned by add/group so you can refer to them. Use sample_values to verify heights at points when it matters.
+When the user wants geometry the built-in kinds cannot express (patterns, repeated shapes, procedural textures, text on paths), write an extension tool with create_tool: a JSON document {format:"depthcad-tool/1", id, name, version, description, schema, measure, render}. schema maps parameter names to {type: number|int|bool|enum|depth|text|string, label, default, min, max, step, slider, options}. measure is a JS function body (p, lib) returning {w, h} in local px. render is a JS function body (p, r, lib): r = {w, h, height, coverage, scale, nat} is the raster to fill (height and coverage are Float32Array 0..1, local coords are centred at 0,0, scale = pixels per local unit). Prefer lib.each((u, v) => value) which sets each pixel from local coords: return a height, or [height, coverage], or null. lib has sdf.{circle, ellipse, box, ring, segment, polygon, star, union, intersect, subtract, rotate} (signed distance, positive inside), aa(d) for antialiased coverage, profile(kind, d, dmax) for flat|linear|dome|cosine|bevel, noise2/fbm, clamp/mix/smoothstep, add(x, y, h, c) for union-compositing pixels, and canvas()/fromCanvas(ctx, height) for drawing text or paths with Canvas 2D in local units. create_tool test-renders the tool and returns errors; fix them and retry. After creating a tool, add a layer that uses it with run_commands (kind "tool:<id>") and position it.
+Keep replies brief: say what you did and what the user can adjust.`;
+
+const TOOL_DEFS = [
+  { name: 'get_document', description: 'Current document: size, selection, the layer tree with ids and parameters, the parameter schemas of layer kinds, modifiers, and tools available in this project.', parameters: { type: 'object', properties: {}, additionalProperties: false } },
+  {
+    name: 'run_commands', description: 'Apply a batch of editing commands in order. Each command is {name, args}. Commands: add {kind, params?, name?, x?, y?, rot?, sx?, sy?, blend?, parentId?, index?} -> {id}; remove {ids}; setParams {id, params}; setNode {id, name?, visible?, locked?, blend?, lockAspect?}; setTransform {id, x?, y?, sx?, sy?, rot?}; setBox {id, x, y, w, h, rot?} (document-space box, resizes shapes/masks or rescales images/text); moveBy {ids, dx, dy}; group {ids, name?} -> {id}; ungroup {id}; duplicate {ids} -> {ids}; align {ids, how: left|hcenter|right|top|vcenter|bottom, to: selection|document}; distribute {ids, axis: horizontal|vertical}; addModifier {id, kind, settings?} -> {index}; setModifier {id, index, settings}; removeModifier {id, index}; reorder {id, parentId, index}; addMask {id, shape: rect|ellipse} -> {id} (wraps the layer in a group with a mask below it); centerInDoc {ids}; fitToDoc {id, fill?}; select {ids}; setDocument {w?, h?, bg?}.',
+    parameters: { type: 'object', properties: { commands: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, args: { type: 'object' } }, required: ['name', 'args'] } } }, required: ['commands'] },
+  },
+  { name: 'create_tool', description: 'Install an extension tool (see the system prompt for the format). Validates it and test-renders it; returns {ok} or {errors}. Then add a layer with kind "tool:<id>" using run_commands.', parameters: { type: 'object', properties: { tool: { type: 'object' } }, required: ['tool'] } },
+  { name: 'sample_values', description: 'Read the composited depth value (0..1) at document points.', parameters: { type: 'object', properties: { points: { type: 'array', items: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' } }, required: ['x', 'y'] } } }, required: ['points'] } },
+];
+
+function runCommand(c) {
+  const a = c.args || {};
+  const nodeFields = ({ x, y, rot, sx, sy, blend }) => Object.fromEntries(Object.entries({ x, y, rot, sx, sy, blend }).filter(([, v]) => v !== undefined));
+  switch (c.name) {
+    case 'add': { if (!KINDS[a.kind]) throw new Error('unknown kind ' + a.kind); const n = cmd.add(a.kind, a.params || {}, { name: a.name, node: nodeFields(a), parentId: a.parentId, index: a.index }); return { id: n.id, box: cmd.boxOf(n) }; }
+    case 'remove': cmd.remove(a.ids); return { ok: true };
+    case 'setParams': cmd.setParams(a.id, a.params); return { ok: true };
+    case 'setNode': { const p = { ...a }; delete p.id; cmd.setNodeProps(a.id, p); return { ok: true }; }
+    case 'setTransform': { const p = { ...a }; delete p.id; cmd.setTransform(a.id, p); return { ok: true }; }
+    case 'setBox': { const n = findNode(a.id); if (!n) throw new Error('no node ' + a.id); const b = cmd.boxOf(n); cmd.setBox(a.id, { x: a.x ?? b.x, y: a.y ?? b.y, w: a.w ?? b.w, h: a.h ?? b.h, rot: a.rot ?? b.rot }); return { ok: true, box: cmd.boxOf(n) }; }
+    case 'moveBy': cmd.moveBy(a.ids, a.dx || 0, a.dy || 0); return { ok: true };
+    case 'group': { const g = cmd.group(a.ids, { name: a.name }); return { id: g && g.id }; }
+    case 'ungroup': cmd.ungroup(a.id); return { ok: true };
+    case 'duplicate': return { ids: cmd.duplicate(a.ids) };
+    case 'align': cmd.align(a.ids, a.how, a.to || 'selection'); return { ok: true };
+    case 'distribute': cmd.distribute(a.ids, a.axis); return { ok: true };
+    case 'addModifier': { const n = findNode(a.id); const m = cmd.addModifier(a.id, a.kind); if (a.settings) cmd.setModifier(a.id, n.modifiers.length - 1, a.settings); return { index: n.modifiers.length - 1 }; }
+    case 'setModifier': cmd.setModifier(a.id, a.index, a.settings || {}); return { ok: true };
+    case 'removeModifier': cmd.removeModifier(a.id, a.index); return { ok: true };
+    case 'reorder': cmd.reorder(a.id, a.parentId || 'root', a.index ?? 0); return { ok: true };
+    case 'addMask': { const m = cmd.addMaskTo(a.id, a.shape || 'ellipse'); return { id: m && m.id }; }
+    case 'centerInDoc': cmd.centerInDoc(a.ids); return { ok: true };
+    case 'fitToDoc': cmd.fitToDoc(a.id, !!a.fill); return { ok: true };
+    case 'select': cmd.select(a.ids || []); return { ok: true };
+    case 'setDocument': { const p = { ...a }; cmd.setDocument(p); return { ok: true }; }
+    default: throw new Error('unknown command ' + c.name);
+  }
+}
+async function executeTool(name, args) {
+  if (name === 'get_document') return documentSummary();
+  if (name === 'run_commands') { const results = []; for (const c of args.commands || []) { try { results.push({ name: c.name, result: runCommand(c) }); } catch (e) { results.push({ name: c.name, error: String(e.message || e) }); } } return { results }; }
+  if (name === 'create_tool') { try { await installTool(args.tool, { toLibrary: false, silent: true }); return { ok: true, kind: 'tool:' + args.tool.id, defaults: Object.fromEntries(Object.entries(args.tool.schema).map(([k, s]) => [k, s.default])) }; } catch (e) { return { errors: [String(e.message || e)] }; } }
+  if (name === 'sample_values') { return { values: (args.points || []).map(p => { const v = valueAt(p.x, p.y); return { x: p.x, y: p.y, value: v, display: v == null ? null : +depthToDisplay(v).toFixed(2) }; }) }; }
+  throw new Error('unknown tool ' + name);
+}
+
+// ---------------------------------------------------------------- provider adapters
+// Each adapter keeps its own message history and exposes: addUser(text), send() -> {text, calls:[{id,name,args}]}, addResults([{id,name,result}])
+function anthropicAdapter({ apiKey, model }) {
+  const messages = []; let client = null;
+  const tools = TOOL_DEFS.map(t => ({ name: t.name, description: t.description, input_schema: t.parameters }));
+  return {
+    addUser(text) { messages.push({ role: 'user', content: text }); },
+    async send(signal) {
+      if (!client) { const mod = await import('https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.124.0/+esm'); const Anthropic = mod.default || mod.Anthropic; client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true }); }
+      const params = { model, max_tokens: 16000, system: SYSTEM(), tools, messages };
+      let res;
+      try { res = await client.beta.messages.create({ ...params, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' }, { signal }); }
+      catch (e) { if (e && e.status === 400 && /fallback|beta/i.test(String(e.message))) res = await client.messages.create(params, { signal }); else throw e; }
+      if (res.stop_reason === 'refusal') throw new Error('The model declined this request' + (res.stop_details && res.stop_details.explanation ? ': ' + res.stop_details.explanation : '.'));
+      messages.push({ role: 'assistant', content: res.content });
+      const text = res.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
+      const calls = res.content.filter(b => b.type === 'tool_use').map(b => ({ id: b.id, name: b.name, args: b.input }));
+      return { text, calls };
+    },
+    addResults(results) { messages.push({ role: 'user', content: results.map(r => ({ type: 'tool_result', tool_use_id: r.id, content: JSON.stringify(r.result) })) }); },
+  };
+}
+function openaiAdapter({ apiKey, model }) {
+  const messages = [{ role: 'system', content: SYSTEM() }];
+  const tools = TOOL_DEFS.map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
+  return {
+    addUser(text) { messages.push({ role: 'user', content: text }); },
+    async send(signal) {
+      const r = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', signal, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey }, body: JSON.stringify({ model, messages, tools }) });
+      if (!r.ok) throw new Error(`OpenAI ${r.status}: ${(await r.text()).slice(0, 300)}`);
+      const j = await r.json(); const m = j.choices[0].message; messages.push(m);
+      return { text: m.content || '', calls: (m.tool_calls || []).map(c => ({ id: c.id, name: c.function.name, args: JSON.parse(c.function.arguments || '{}') })) };
+    },
+    addResults(results) { for (const r of results) messages.push({ role: 'tool', tool_call_id: r.id, content: JSON.stringify(r.result) }); },
+  };
+}
+function googleAdapter({ apiKey, model }) {
+  const contents = []; let n = 0;
+  const tools = [{ functionDeclarations: TOOL_DEFS.map(t => ({ name: t.name, description: t.description, parameters: t.parameters })) }];
+  return {
+    addUser(text) { contents.push({ role: 'user', parts: [{ text }] }); },
+    async send(signal) {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ systemInstruction: { parts: [{ text: SYSTEM() }] }, contents, tools }) });
+      if (!r.ok) throw new Error(`Google ${r.status}: ${(await r.text()).slice(0, 300)}`);
+      const j = await r.json(); const parts = (j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || [];
+      contents.push({ role: 'model', parts });
+      return { text: parts.filter(p => p.text).map(p => p.text).join('\n'), calls: parts.filter(p => p.functionCall).map(p => ({ id: 'g' + (++n), name: p.functionCall.name, args: p.functionCall.args || {} })) };
+    },
+    addResults(results) { contents.push({ role: 'user', parts: results.map(r => ({ functionResponse: { name: r.name, response: { result: r.result } } })) }); },
+  };
+}
+const ADAPTERS = { anthropic: anthropicAdapter, openai: openaiAdapter, google: googleAdapter };
+let adapterOverride = null; // for tests
+function setAdapterFactory(fn) { adapterOverride = fn; }
+
+// ---------------------------------------------------------------- UI
+let adapter = null, busy = false, abort = null, turnCommits = 0;
+function initAgent() {
+  const b = el('button', 'aibtn', '✦'); b.id = 'aiBtn'; b.title = 'AI assistant'; document.body.appendChild(b);
+  const dr = el('div'); dr.id = 'aiDrawer'; document.body.appendChild(dr);
+  const head = el('div', 'aihead');
+  const prov = document.createElement('select'); for (const [k, l] of Object.entries({ anthropic: 'Anthropic (Claude)', openai: 'OpenAI', google: 'Google (Gemini)' })) { const o = el('option', null, l); o.value = k; prov.appendChild(o); } prov.value = settings.provider;
+  const model = document.createElement('input'); model.type = 'text'; model.value = settings.models[settings.provider]; model.title = 'Model id'; model.style.width = '150px';
+  const key = document.createElement('input'); key.type = 'password'; key.placeholder = 'API key (stored in this browser only)'; key.value = settings.keys[settings.provider] || ''; key.style.flex = '1';
+  const closeB = btn('✕', () => dr.classList.remove('on'), 'small');
+  prov.addEventListener('change', () => { settings.provider = prov.value; model.value = settings.models[prov.value]; key.value = settings.keys[prov.value] || ''; adapter = null; saveSettings(); });
+  model.addEventListener('change', () => { settings.models[settings.provider] = model.value.trim() || DEFAULT_MODELS[settings.provider]; adapter = null; saveSettings(); });
+  key.addEventListener('change', () => { settings.keys[settings.provider] = key.value.trim(); adapter = null; saveSettings(); });
+  const row1 = el('div', 'row'); row1.append(el('b', null, 'Assistant'), el('span', null, ' '), prov, closeB); row1.style.justifyContent = 'space-between';
+  const row2 = el('div', 'row'); row2.append(model, key);
+  head.append(row1, row2);
+  const log = el('div', 'ailog');
+  const inputRow = el('div', 'aiinput'); const ta = document.createElement('textarea'); ta.rows = 3; ta.placeholder = 'Describe what to add or change… e.g. "put a ring of 12 raised stars around the statue"';
+  const send = btn('Send', () => submit(), 'primary'); const stop = btn('Stop', () => { if (abort) abort.abort(); }, ''); stop.disabled = true;
+  const clear = btn('New chat', () => { adapter = null; log.innerHTML = ''; }, '');
+  const bar = el('div', 'btnrow'); bar.append(send, stop, clear); inputRow.append(ta, bar);
+  const status = el('div', 'hint'); status.id = 'aiStatus';
+  dr.append(head, log, status, inputRow);
+  b.addEventListener('click', () => { dr.classList.toggle('on'); if (dr.classList.contains('on')) ta.focus(); });
+  ta.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); } });
+  const bubble = (cls, text) => { const d = el('div', 'aimsg ' + cls); d.textContent = text; log.appendChild(d); log.scrollTop = log.scrollHeight; return d; };
+
+  async function submit(textOverride) {
+    const text = (textOverride ?? ta.value).trim(); if (!text || busy) return; ta.value = '';
+    const apiKey = settings.keys[settings.provider];
+    if (!adapterOverride && !apiKey) { bubble('sys', 'Enter an API key for the selected provider first. It is stored only in this browser.'); return; }
+    if (!adapter) adapter = adapterOverride ? adapterOverride() : ADAPTERS[settings.provider]({ apiKey, model: settings.models[settings.provider] });
+    bubble('user', text); busy = true; send.disabled = true; stop.disabled = false; abort = new AbortController();
+    const depth0 = undoDepth(); turnCommits = 0;
+    adapter.addUser(text + `\n\n(Current document: ${state.doc.w}×${state.doc.h} px, ${state.root.children.length} top-level layers, selection: ${state.sel.join(', ') || 'none'}.)`);
+    try {
+      for (let iter = 0; iter < 16; iter++) {
+        status.textContent = iter ? `Working… (${iter})` : 'Thinking…';
+        const { text: reply, calls } = await adapter.send(abort.signal);
+        if (reply) bubble('ai', reply);
+        if (!calls.length) break;
+        const results = [];
+        for (const c of calls) { const line = bubble('call', `${c.name}${c.name === 'run_commands' ? ' × ' + ((c.args.commands || []).length) : ''}`); const result = await executeTool(c.name, c.args || {}); if (result && result.errors) line.textContent += ' — ' + result.errors.join('; '); results.push({ id: c.id, name: c.name, result }); }
+        adapter.addResults(results);
+      }
+    } catch (e) { bubble('sys', e.name === 'AbortError' ? 'Stopped.' : 'Error: ' + (e.message || e)); }
+    const made = undoDepth() - depth0;
+    if (made > 0) { const d = bubble('sys', `${made} change${made > 1 ? 's' : ''} applied. `); const r = btn('Revert this reply', () => { for (let i = 0; i < made; i++) undo(); d.textContent = 'Reverted.'; }, 'small'); d.appendChild(r); }
+    status.textContent = ''; busy = false; send.disabled = false; stop.disabled = true; abort = null;
+  }
+  return { submit, isOpen: () => dr.classList.contains('on') };
+}
+
+Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get documentSummary() { return documentSummary; }, get setAdapterFactory() { return setAdapterFactory; }, get initAgent() { return initAgent; } }));
+});
 __define('./ui/canvas.js', function (__exports) {
 // 2D editor: pan/zoom view of the composite, selection outlines, handles, dragging.
 const { state, findNode, visibleLeaves, selectedNodes, primarySelected, fmtDepth } = __require('./app/state.js');
 const cmd = __require('./app/commands.js');
 const { commit } = __require('./app/history.js');
 const { getComposite, onComposite, onFrame, invalidate, valueAt } = __require('./app/render.js');
-const { boxCorners, boxPoint, boxContains, DEG } = __require('./engine/transform.js');
+const { boxCorners, boxPoint, boxContains, boxAABB, unionAABB, DEG } = __require('./engine/transform.js');
 const { KINDS } = __require('./engine/kinds.js');
 const { $ } = __require('./ui/dom.js');
 let cv, vctx, dpr = 1, compCanvas = null, drag = null, spaceDown = false, hoverCursor = 'default';
@@ -1817,6 +2685,8 @@ function drawView() {
   const v = state.view;
   if (compCanvas) { c.imageSmoothingEnabled = v.zoom * (compCanvas.width / state.doc.w) < 1; c.imageSmoothingQuality = 'high'; c.drawImage(compCanvas, v.x, v.y, state.doc.w * v.zoom, state.doc.h * v.zoom); }
   c.strokeStyle = '#555'; c.lineWidth = 1; c.strokeRect(v.x - 0.5, v.y - 0.5, state.doc.w * v.zoom + 1, state.doc.h * v.zoom + 1);
+  if (drag && drag.kind === 'marquee' && drag.moved) { const r = marqueeRect(drag); const a = toScreen(r.x0, r.y0), b = toScreen(r.x1, r.y1); c.fillStyle = 'rgba(76,154,255,.12)'; c.fillRect(a.x, a.y, b.x - a.x, b.y - a.y); c.strokeStyle = '#4c9aff'; c.setLineDash([4, 3]); c.strokeRect(a.x + 0.5, a.y + 0.5, b.x - a.x, b.y - a.y); c.setLineDash([]); }
+  if (drag && drag.kind === 'move' && drag.guides && drag.guides.length) { c.strokeStyle = '#ff5fa2'; c.lineWidth = 1; for (const g of drag.guides) { c.beginPath(); if (g.axis === 'x') { const s = toScreen(g.pos, 0); c.moveTo(s.x + 0.5, 0); c.lineTo(s.x + 0.5, h); } else { const s = toScreen(0, g.pos); c.moveTo(0, s.y + 0.5); c.lineTo(w, s.y + 0.5); } c.stroke(); } }
   if (!state.showOutlines) return;
   const sel = selectedNodes(); if (!sel.length) return;
   const single = sel.length === 1;
@@ -1865,14 +2735,37 @@ function onDown(e) {
   // inside any selected box: move the selection
   const sel = selectedNodes();
   const inside = sel.find(n => boxContains(cmd.boxOf(n), d.x, d.y));
-  if (inside && !e.shiftKey) { drag = { kind: 'move', ids: sel.map(n => n.id), sx: d.x, sy: d.y, lx: d.x, ly: d.y, moved: false }; return; }
+  if (inside && !e.shiftKey) { drag = startMove(sel.map(n => n.id), d); return; }
   const hit = hitTest(d);
   if (hit) {
     if (e.shiftKey) { cmd.select([hit.id], { toggle: true }); return; }
     cmd.select([hit.id]);
-    drag = { kind: 'move', ids: [hit.id], sx: d.x, sy: d.y, lx: d.x, ly: d.y, moved: false }; return;
+    drag = startMove([hit.id], d); return;
   }
-  drag = { kind: 'panOrDeselect', sx: p.x, sy: p.y, vx: state.view.x, vy: state.view.y, moved: false };
+  drag = { kind: 'marquee', sx: d.x, sy: d.y, ex: d.x, ey: d.y, spx: p.x, spy: p.y, moved: false, base: e.shiftKey ? state.sel.slice() : [] };
+}
+
+function startMove(ids, d) {
+  const boxes = ids.map(id => findNode(id)).filter(Boolean).map(n => boxAABB(cmd.boxOf(n)));
+  return { kind: 'move', ids, sx: d.x, sy: d.y, ax: 0, ay: 0, moved: false, aabb0: boxes.length ? unionAABB(boxes) : null, guides: [] };
+}
+// Snap targets: document edges/centre and the edges/centres of unselected visible leaves.
+function snapTargets(excludeIds) {
+  const xs = [0, state.doc.w / 2, state.doc.w], ys = [0, state.doc.h / 2, state.doc.h];
+  for (const n of visibleLeaves()) { if (excludeIds.includes(n.id)) continue; const a = boxAABB(cmd.boxOf(n)); xs.push(a.x0, (a.x0 + a.x1) / 2, a.x1); ys.push(a.y0, (a.y0 + a.y1) / 2, a.y1); }
+  return { xs, ys };
+}
+function snapOffset(aabb, dx, dy, targets, thr) {
+  let bx = null, by = null, gx = null, gy = null;
+  for (const v of [aabb.x0 + dx, (aabb.x0 + aabb.x1) / 2 + dx, aabb.x1 + dx]) for (const t of targets.xs) { const d = t - v; if (Math.abs(d) < thr && (bx === null || Math.abs(d) < Math.abs(bx))) { bx = d; gx = t; } }
+  for (const v of [aabb.y0 + dy, (aabb.y0 + aabb.y1) / 2 + dy, aabb.y1 + dy]) for (const t of targets.ys) { const d = t - v; if (Math.abs(d) < thr && (by === null || Math.abs(d) < Math.abs(by))) { by = d; gy = t; } }
+  return { dx: dx + (bx || 0), dy: dy + (by || 0), guides: [gx !== null && { axis: 'x', pos: gx }, gy !== null && { axis: 'y', pos: gy }].filter(Boolean) };
+}
+function marqueeRect(dk) { return { x0: Math.min(dk.sx, dk.ex), y0: Math.min(dk.sy, dk.ey), x1: Math.max(dk.sx, dk.ex), y1: Math.max(dk.sy, dk.ey) }; }
+function marqueeSelection(dk) {
+  const r = marqueeRect(dk); const ids = [];
+  for (const n of visibleLeaves()) { if (n.locked) continue; const a = boxAABB(cmd.boxOf(n)); if (a.x1 >= r.x0 && a.x0 <= r.x1 && a.y1 >= r.y0 && a.y0 <= r.y1) ids.push(n.id); }
+  return [...new Set([...dk.base, ...ids])];
 }
 
 function onMove(e) {
@@ -1890,16 +2783,20 @@ function onMove(e) {
   const n = drag.id ? findNode(drag.id) : null;
   const uniform = n ? (n.lockAspect !== e.shiftKey) : e.shiftKey;
   switch (drag.kind) {
-    case 'pan': case 'panOrDeselect': {
-      if (Math.hypot(p.x - drag.sx, p.y - drag.sy) > 3) drag.moved = true;
-      if (drag.kind === 'pan' || drag.moved) { state.view.x = drag.vx + (p.x - drag.sx); state.view.y = drag.vy + (p.y - drag.sy); }
+    case 'pan': { state.view.x = drag.vx + (p.x - drag.sx); state.view.y = drag.vy + (p.y - drag.sy); break; }
+    case 'marquee': {
+      drag.ex = d.x; drag.ey = d.y;
+      if (Math.hypot(p.x - drag.spx, p.y - drag.spy) > 3) drag.moved = true;
+      if (drag.moved) { const ids = marqueeSelection(drag); if (ids.join() !== state.sel.join()) cmd.select(ids); }
       break;
     }
     case 'move': {
-      let tx = d.x, ty = d.y;
-      if (e.shiftKey) { if (Math.abs(d.x - drag.sx) > Math.abs(d.y - drag.sy)) ty = drag.sy; else tx = drag.sx; }
-      const dx = tx - drag.lx, dy = ty - drag.ly; drag.lx = tx; drag.ly = ty;
-      if (dx || dy) { drag.moved = true; cmd.moveBy(drag.ids, dx, dy, { transient: true }); }
+      let dx = d.x - drag.sx, dy = d.y - drag.sy;
+      if (e.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
+      drag.guides = [];
+      if (!(e.ctrlKey || e.metaKey) && drag.aabb0) { const s = snapOffset(drag.aabb0, dx, dy, snapTargets(drag.ids), 6 / state.view.zoom); dx = s.dx; dy = s.dy; drag.guides = s.guides; }
+      const mx = dx - drag.ax, my = dy - drag.ay;
+      if (mx || my) { drag.moved = true; drag.ax = dx; drag.ay = dy; cmd.moveBy(drag.ids, mx, my, { transient: true }); }
       break;
     }
     case 'rotate': {
@@ -1928,7 +2825,7 @@ function onMove(e) {
 }
 function endDrag() {
   if (!drag) return; const dk = drag; drag = null;
-  if (dk.kind === 'panOrDeselect' && !dk.moved) { cmd.select([]); return; }
+  if (dk.kind === 'marquee') { if (!dk.moved) cmd.select(dk.base); return; }
   if (dk.kind === 'move' || dk.kind === 'rotate' || dk.kind === 'scale') commit();
 }
 
@@ -1940,7 +2837,10 @@ const { state, UNITS } = __require('./app/state.js');
 const cmd = __require('./app/commands.js');
 const { exportPNG } = __require('./app/io.js');
 const { $, el, btn, setMsg } = __require('./ui/dom.js');
-function openModal(title, body, buttons = []) {
+let onCloseCb = null;
+function openModal(title, body, buttons = [], onClose = null) {
+  if (onCloseCb) { const f = onCloseCb; onCloseCb = null; f(); }
+  onCloseCb = onClose;
   const m = $('#modal'); const box = $('#modalBox'); box.innerHTML = '';
   box.appendChild(el('h3', null, title)); box.appendChild(body);
   const row = el('div', 'btnrow'); row.style.justifyContent = 'flex-end';
@@ -1948,7 +2848,7 @@ function openModal(title, body, buttons = []) {
   m.classList.add('on');
   return { close: closeModal };
 }
-function closeModal() { $('#modal').classList.remove('on'); }
+function closeModal() { $('#modal').classList.remove('on'); if (onCloseCb) { const f = onCloseCb; onCloseCb = null; f(); } }
 function initDialogs() { $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); }); }
 
 function field(label, input) { const r = el('div', 'row'); const l = el('label', null, label); l.style.width = '120px'; r.append(l, input); return r; }
@@ -1994,7 +2894,7 @@ function helpDialog() {
 
 <b>Modifiers</b> (Levels, Curve, Clamp, Feather, Blur, Offset) are applied per layer, in order. A modifier on a group acts on everything in it.
 
-<b>Canvas</b>: drag a layer to move it, drag handles to scale (<kbd>Shift</kbd> toggles the aspect lock, <kbd>Alt</kbd> scales about the centre), drag the round handle to rotate (<kbd>Shift</kbd> snaps to 15°). <kbd>Shift</kbd>-click adds to the selection. Wheel or pinch to zoom, drag empty space or hold <kbd>Space</kbd> to pan, arrow keys nudge (<kbd>Shift</kbd> = 10 px).
+<b>Canvas</b>: drag a layer to move it, drag handles to scale (<kbd>Shift</kbd> toggles the aspect lock, <kbd>Alt</kbd> scales about the centre), drag the round handle to rotate (<kbd>Shift</kbd> snaps to 15°). <kbd>Shift</kbd>-click adds to the selection; drag on empty space for a marquee. Moving snaps to the document and to other layers (hold <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> to disable). Wheel or pinch to zoom, hold <kbd>Space</kbd> or use the middle/right button to pan, arrow keys nudge (<kbd>Shift</kbd> = 10 px).
 
 <b>Shortcuts</b>: <kbd>Ctrl+Z</kbd>/<kbd>Ctrl+Shift+Z</kbd> undo/redo, <kbd>Ctrl+C</kbd>/<kbd>Ctrl+V</kbd> copy/paste, <kbd>Ctrl+D</kbd> duplicate, <kbd>Ctrl+G</kbd>/<kbd>Ctrl+Shift+G</kbd> group/ungroup, <kbd>Del</kbd> delete, <kbd>Ctrl+A</kbd> select all, <kbd>Ctrl+S</kbd> save, <kbd>Ctrl+O</kbd> open, <kbd>Ctrl+E</kbd> export, <kbd>F</kbd> fit, <kbd>1</kbd> 100%, <kbd>Esc</kbd> deselect.
 
@@ -2090,6 +2990,204 @@ function fontPicker(get, set) {
 
 Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get BUILTIN_FONTS() { return BUILTIN_FONTS; }, get listInstalledFonts() { return listInstalledFonts; }, get fontPicker() { return fontPicker; } }));
 });
+__define('./ui/meshImport.js', function (__exports) {
+// Mesh import dialog: orthographic depth "screenshot" of an STL/OBJ with interactive
+// orientation, framing, resolution and near/far clipping planes.
+const { state, findNode } = __require('./app/state.js');
+const cmd = __require('./app/commands.js');
+const { registerBakedRaster } = __require('./app/io.js');
+const { createBaker, UNCOVERED } = __require('./engine/meshbake.js');
+const { eulerToMat, matToEuler, mul3, rotX, rotY, rotZ, rotatedExtents, snapEuler } = __require('./engine/mesh.js');
+const { openModal, closeModal } = __require('./ui/dialogs.js');
+const { $, el, btn, setMsg } = __require('./ui/dom.js');
+const { clamp, deepClone } = __require('./engine/util.js');
+const PREV = 400; // preview pixel size
+
+function defaultBakeParams(mesh) {
+  return { rot: [0, 0, 0], scale: 1, pan: [0, 0], near: 0, far: 1, res: 1024, w: 1024, h: 1024, bg: 'transparent', ss: 2 };
+}
+
+function openMeshImport({ meshId, nodeId = null }) {
+  const mesh = state.meshes[meshId]; if (!mesh) { alert('Mesh not found'); return; }
+  const existing = nodeId ? findNode(nodeId) : null;
+  const p = existing && existing.params.bake ? deepClone(existing.params.bake) : defaultBakeParams(mesh);
+  const st = { p, autoFit: !existing, clipMode: existing ? 'manual' : 'geometry', cam: { yaw: 0.8, pitch: 0.45, dist: 3.2, tx: 0, ty: 0, tz: 0 }, embed: existing ? existing.params.embed !== false : mesh.bytes < 25e6, dist: null, stats: null, VP: null, dirty: true, fields: [] };
+
+  // ---- DOM
+  const wrap = el('div', 'meshwrap');
+  const left = el('div', 'mcol'), right = el('div', 'mcol');
+  const lt = el('div', 'mtitle', 'Depth result '); const resLbl = el('span', 'sub'); lt.appendChild(resLbl);
+  const prev = document.createElement('canvas'); prev.width = PREV; prev.height = PREV; prev.className = 'mprev';
+  const hist = document.createElement('canvas'); hist.width = PREV; hist.height = 72; hist.className = 'mhist';
+  const clipRow = el('div', 'row');
+  const nearIn = num(() => p.near, v => { p.near = Math.min(v, p.far - 1e-6); st.clipMode = 'manual'; touch(); }, 0.001);
+  const farIn = num(() => p.far, v => { p.far = Math.max(v, p.near + 1e-6); st.clipMode = 'manual'; touch(); }, 0.001);
+  clipRow.append(el('label', null, 'Near'), nearIn, el('label', null, 'Far'), farIn);
+  const presetRow = el('div', 'btnrow');
+  presetRow.append(
+    btn('Far = farthest geometry', () => { st.clipMode = 'geometry'; applyClip(); touch(); }, 'small', 'Far plane at the back of the bounding box (hidden geometry still counts)'),
+    btn('Far = farthest visible', () => { st.clipMode = 'visible'; applyClip(); touch(); }, 'small', 'Far plane at the farthest visible surface'),
+    btn('Near = nearest visible', () => { if (st.stats) { p.near = st.stats.min; st.clipMode = 'manual'; touch(); } }, 'small'),
+    btn('Near = nearest geometry', () => { p.near = ext().dist[0]; st.clipMode = 'manual'; touch(); }, 'small'));
+  const bgRow = el('div', 'row'); const bgSel = sel({ transparent: 'Outside the model: transparent', far: 'Outside the model: farthest (0)' }, p.bg, v => { p.bg = v; touch(); }); bgRow.append(bgSel);
+  left.append(lt, prev, hist, clipRow, presetRow, bgRow, el('div', 'hint', 'Drag the depth image to rotate the model. Green = clipped to maximum height, red = clipped to 0. Drag the handles on the histogram (or the planes on the right) to set the range.'));
+
+  const rt = el('div', 'mtitle', 'Inspect '); rt.appendChild(el('span', 'sub', 'drag to orbit, wheel to zoom, drag a plane handle to move it'));
+  const glWrap = el('div', 'mglwrap'); const glc = document.createElement('canvas'); glc.width = PREV; glc.height = PREV; glc.className = 'mgl';
+  const ov = document.createElement('canvas'); ov.width = PREV; ov.height = PREV; ov.className = 'mov'; glWrap.append(glc, ov);
+  const viewRow = el('div', 'btnrow'); viewRow.appendChild(el('label', null, 'View from'));
+  for (const [l, r] of [['+Z (front)', [0, 0, 0]], ['−Z', [0, 180, 0]], ['+X', [0, -90, 0]], ['−X', [0, 90, 0]], ['+Y (top)', [90, 0, 0]], ['−Y', [-90, 0, 0]]]) viewRow.appendChild(btn(l, () => { p.rot = r.slice(); onRotate(); }));
+  const rotRow = el('div', 'btnrow'); rotRow.appendChild(el('label', null, 'Rotate 90°'));
+  for (const [l, ax, s] of [['X ↻', 'x', 90], ['X ↺', 'x', -90], ['Y ↻', 'y', 90], ['Y ↺', 'y', -90], ['Z ↻', 'z', 90], ['Z ↺', 'z', -90]]) rotRow.appendChild(btn(l, () => { const M = ax === 'x' ? rotX(s) : ax === 'y' ? rotY(s) : rotZ(s); p.rot = snapEuler(matToEuler(mul3(M, eulerToMat(p.rot)))); onRotate(); }));
+  const angRow = el('div', 'row'); angRow.appendChild(el('label', null, 'Angles X Y Z'));
+  for (let i = 0; i < 3; i++) angRow.appendChild(num(() => p.rot[i], v => { p.rot[i] = v; onRotate(); }, 0.5));
+  const frameRow = el('div', 'row'); frameRow.append(el('label', null, 'Pixels / unit'), num(() => p.scale, v => { p.scale = Math.max(1e-6, v); st.autoFit = false; sizeFromScale(); touch(); }, 0.01),
+    el('label', null, 'Pan'), num(() => p.pan[0], v => { p.pan[0] = v; st.autoFit = false; touch(); }, 0.01), num(() => p.pan[1], v => { p.pan[1] = v; st.autoFit = false; touch(); }, 0.01), btn('Fit', () => { st.autoFit = true; fit(); touch(); }));
+  const resRow = el('div', 'row'); resRow.append(el('label', null, 'Resolution (long side)'), num(() => p.res, v => { p.res = clamp(Math.round(v), 16, 8192); if (st.autoFit) fit(); else sizeFromScale(); touch(); }, 1));
+  const ssChk = check('Supersample edges (2×)', () => p.ss === 2, v => { p.ss = v ? 2 : 1; });
+  const embChk = check(`Embed mesh in project (${(mesh.bytes / 1048576).toFixed(1)} MB)`, () => st.embed, v => { st.embed = v; });
+  resRow.append(ssChk); right.append(rt, glWrap, viewRow, rotRow, angRow, frameRow, resRow, embChk,
+    el('div', 'hint', `${mesh.name}: ${mesh.triangles.toLocaleString()} triangles, size ${mesh.bounds.size.map(v => v.toFixed(2)).join(' × ')} units. The bake is an orthographic projection; 0 = far plane, maximum = near plane.`));
+  wrap.append(left, right);
+
+  const bakeBtn = btn(existing ? 'Re-bake' : 'Bake layer', doBake, 'primary'); bakeBtn.id = 'mBake';
+  openModal(existing ? 'Re-bake mesh layer' : 'Import mesh as depth layer', wrap, [btn('Cancel', closeModal, ''), bakeBtn], cleanup);
+  $('#modalBox').classList.add('wide');
+
+  // ---- baker
+  let baker;
+  try { baker = createBaker(glc); baker.setMesh(mesh); } catch (e) { closeModal(); alert(e.message); return; }
+  if (!existing) { fit(); applyClip(); }
+  let raf = 0;
+  function touch() { st.dirty = true; if (!raf) raf = requestAnimationFrame(() => { raf = 0; update(); }); }
+  function refreshFields() { for (const [inp, get] of st.fields) { if (inp.type === 'checkbox') inp.checked = !!get(); else if (document.activeElement !== inp) inp.value = +(+get()).toFixed(4); } }
+
+  function ext() { return rotatedExtents(mesh.bounds, eulerToMat(p.rot)); }
+  function fit() {
+    const e = ext(); const sx = Math.max(1e-9, e.x[1] - e.x[0]), sy = Math.max(1e-9, e.y[1] - e.y[0]);
+    p.scale = p.res * 0.96 / Math.max(sx, sy); p.pan = [(e.x[0] + e.x[1]) / 2, (e.y[0] + e.y[1]) / 2]; sizeFromScale();
+  }
+  function sizeFromScale() { const e = ext(); const sx = e.x[1] - e.x[0], sy = e.y[1] - e.y[0]; const pad = p.res * 0.02; p.w = clamp(Math.ceil(sx * p.scale + pad * 2), 4, 8192); p.h = clamp(Math.ceil(sy * p.scale + pad * 2), 4, 8192); }
+  function applyClip() {
+    const e = ext();
+    if (st.clipMode === 'geometry') { p.near = e.dist[0]; p.far = e.dist[1]; }
+    else if (st.clipMode === 'visible' && st.stats && st.stats.count) { p.near = st.stats.min; p.far = st.stats.max; }
+    if (p.far - p.near < 1e-9) p.far = p.near + 1e-6;
+  }
+  function onRotate() { if (st.autoFit) fit(); else sizeFromScale(); if (st.clipMode === 'geometry') applyClip(); touch(); }
+
+  function update() {
+    // low-resolution preview bake
+    const long = Math.max(p.w, p.h); const pw = Math.max(8, Math.round(p.w / long * PREV)), ph = Math.max(8, Math.round(p.h / long * PREV));
+    const pp = { ...p, scale: p.scale * (pw / p.w) };
+    st.dist = baker.bakeDist(pp, pw, ph); st.stats = baker.distStats(st.dist);
+    if (st.clipMode === 'visible') applyClip();
+    drawPreview(pw, ph); drawHist(); drawGL(); refreshFields();
+    resLbl.textContent = `${p.w} × ${p.h} px`;
+  }
+  function drawPreview(pw, ph) {
+    const c = prev.getContext('2d'); c.clearRect(0, 0, PREV, PREV); c.fillStyle = '#1b1c1f'; c.fillRect(0, 0, PREV, PREV);
+    const img = c.createImageData(pw, ph); const d = img.data; const span = Math.max(1e-9, p.far - p.near);
+    for (let i = 0; i < pw * ph; i++) {
+      const v = st.dist.dist[i]; const k = i * 4;
+      if (v >= UNCOVERED) { const chk = (((i % pw) >> 3) + ((i / pw | 0) >> 3)) & 1; d[k] = d[k + 1] = chk ? 44 : 36; d[k + 2] = chk ? 54 : 46; d[k + 3] = 255; continue; }
+      const hh = (p.far - v) / span;
+      if (hh > 1.0001) { d[k] = 90; d[k + 1] = 200; d[k + 2] = 90; } else if (hh < -0.0001) { d[k] = 200; d[k + 1] = 80; d[k + 2] = 80; } else { const g = Math.round(clamp(hh, 0, 1) * 255); d[k] = d[k + 1] = d[k + 2] = g; }
+      d[k + 3] = 255;
+    }
+    const ox = (PREV - pw) >> 1, oy = (PREV - ph) >> 1; c.putImageData(img, ox, oy);
+    c.strokeStyle = '#555'; c.strokeRect(ox - 0.5, oy - 0.5, pw + 1, ph + 1);
+  }
+  function histRange() { const e = ext(); const lo = Math.min(e.dist[0], p.near), hi = Math.max(e.dist[1], p.far); return [lo, hi]; }
+  function drawHist() {
+    const c = hist.getContext('2d'); const W = hist.width, H = hist.height; c.clearRect(0, 0, W, H); c.fillStyle = '#17181b'; c.fillRect(0, 0, W, H);
+    const [lo, hi] = histRange(); const s = baker.distStats(st.dist, 96, [lo, hi]);
+    const bw = (W - 20) / 96; c.fillStyle = '#6a7d9c';
+    for (let i = 0; i < 96; i++) { const v = s.peak ? s.hist[i] / s.peak : 0; c.fillRect(10 + i * bw, H - 14 - v * (H - 20), Math.max(1, bw - 1), v * (H - 20)); }
+    const x = v => 10 + (v - lo) / Math.max(1e-9, hi - lo) * (W - 20);
+    c.fillStyle = 'rgba(90,200,90,.15)'; c.fillRect(10, 0, Math.max(0, x(p.near) - 10), H - 14);
+    c.fillStyle = 'rgba(200,80,80,.15)'; c.fillRect(x(p.far), 0, Math.max(0, W - 10 - x(p.far)), H - 14);
+    for (const [v, col, lbl] of [[p.near, '#5fd75f', 'near'], [p.far, '#e06a6a', 'far']]) { const hx = x(v); c.strokeStyle = col; c.lineWidth = 2; c.beginPath(); c.moveTo(hx, 0); c.lineTo(hx, H - 12); c.stroke(); c.fillStyle = col; c.beginPath(); c.moveTo(hx - 6, H - 12); c.lineTo(hx + 6, H - 12); c.lineTo(hx, H - 4); c.closePath(); c.fill(); c.font = '10px sans-serif'; c.fillText(lbl, hx + 8, H - 3); }
+    c.fillStyle = '#8f9096'; c.font = '10px sans-serif'; c.fillText('near', 10, 10); c.textAlign = 'right'; c.fillText('far', W - 10, 10); c.textAlign = 'left';
+  }
+  function drawGL() {
+    const r = baker.renderPreview(p, st.cam, PREV, PREV); st.VP = r.VP;
+    const c = ov.getContext('2d'); c.clearRect(0, 0, PREV, PREV);
+    for (const h of planeHandles()) { c.beginPath(); c.arc(h.x, h.y, 7, 0, Math.PI * 2); c.fillStyle = h.color; c.fill(); c.strokeStyle = '#fff'; c.lineWidth = 1.5; c.stroke(); }
+  }
+  function planeHandles() {
+    if (!st.VP) return [];
+    const cx = p.pan[0], cy = p.pan[1] + p.h / p.scale / 2; // top edge centre of the window
+    const n = baker.project(st.VP, [cx, cy, -p.near], PREV, PREV), f = baker.project(st.VP, [cx, cy, -p.far], PREV, PREV);
+    return [{ key: 'near', x: n.x, y: n.y, color: '#5fd75f' }, { key: 'far', x: f.x, y: f.y, color: '#e06a6a' }];
+  }
+
+  // ---- interactions
+  let drag = null;
+  const pos = (e, cv) => { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) * cv.width / r.width, y: (e.clientY - r.top) * cv.height / r.height }; };
+  prev.addEventListener('pointerdown', e => { prev.setPointerCapture(e.pointerId); drag = { kind: 'rot', x: e.clientX, y: e.clientY }; });
+  prev.addEventListener('pointermove', e => {
+    if (!drag || drag.kind !== 'rot') return; const k = (e.shiftKey ? 0.05 : 0.5); const dx = (e.clientX - drag.x) * k, dy = (e.clientY - drag.y) * k; drag.x = e.clientX; drag.y = e.clientY;
+    const R = mul3(rotX(dy), mul3(rotY(dx), eulerToMat(p.rot))); p.rot = matToEuler(R); onRotate();
+  });
+  const endDrag = () => { drag = null; };
+  prev.addEventListener('pointerup', endDrag); prev.addEventListener('pointercancel', endDrag);
+  ov.addEventListener('pointerdown', e => {
+    ov.setPointerCapture(e.pointerId); const m = pos(e, ov);
+    const h = planeHandles().find(h => Math.hypot(h.x - m.x, h.y - m.y) < 12);
+    if (h) {
+      const cx = p.pan[0], cy = p.pan[1] + p.h / p.scale / 2; const a = baker.project(st.VP, [cx, cy, -p.near], PREV, PREV), b = baker.project(st.VP, [cx, cy, -p.far], PREV, PREV);
+      const dd = Math.max(1e-9, p.far - p.near); const dir = { x: (b.x - a.x) / dd, y: (b.y - a.y) / dd }; const l2 = dir.x * dir.x + dir.y * dir.y || 1e-9;
+      drag = { kind: 'plane', key: h.key, x: m.x, y: m.y, dir, l2, near0: p.near, far0: p.far }; return;
+    }
+    drag = { kind: 'orbit', x: e.clientX, y: e.clientY, pan: e.button === 2 || e.shiftKey };
+  });
+  ov.addEventListener('pointermove', e => {
+    if (!drag) return;
+    if (drag.kind === 'orbit') { const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.x = e.clientX; drag.y = e.clientY; st.cam.yaw -= dx * 0.008; st.cam.pitch = clamp(st.cam.pitch + dy * 0.008, -1.5, 1.55); drawGL(); }
+    else if (drag.kind === 'plane') {
+      const m = pos(e, ov); const dd = ((m.x - drag.x) * drag.dir.x + (m.y - drag.y) * drag.dir.y) / drag.l2;
+      const [lo, hi] = [ext().dist[0] - mesh.bounds.radius, ext().dist[1] + mesh.bounds.radius];
+      if (drag.key === 'near') p.near = clamp(drag.near0 + dd, lo, p.far - 1e-6); else p.far = clamp(drag.far0 + dd, p.near + 1e-6, hi);
+      st.clipMode = 'manual'; touch();
+    }
+  });
+  ov.addEventListener('pointerup', endDrag); ov.addEventListener('pointercancel', endDrag); ov.addEventListener('contextmenu', e => e.preventDefault());
+  ov.addEventListener('wheel', e => { e.preventDefault(); st.cam.dist = clamp(st.cam.dist * Math.exp(e.deltaY * 0.0015), 0.5, 20); drawGL(); }, { passive: false });
+  hist.addEventListener('pointerdown', e => {
+    hist.setPointerCapture(e.pointerId); const m = pos(e, hist); const [lo, hi] = histRange(); const x = v => 10 + (v - lo) / Math.max(1e-9, hi - lo) * (hist.width - 20);
+    const key = Math.abs(x(p.near) - m.x) <= Math.abs(x(p.far) - m.x) ? 'near' : 'far'; drag = { kind: 'hist', key, lo, hi }; histDrag(m.x);
+  });
+  hist.addEventListener('pointermove', e => { if (drag && drag.kind === 'hist') histDrag(pos(e, hist).x); });
+  hist.addEventListener('pointerup', endDrag); hist.addEventListener('pointercancel', endDrag);
+  function histDrag(mx) { const v = drag.lo + clamp((mx - 10) / (hist.width - 20), 0, 1) * (drag.hi - drag.lo); if (drag.key === 'near') p.near = Math.min(v, p.far - 1e-6); else p.far = Math.max(v, p.near + 1e-6); st.clipMode = 'manual'; touch(); }
+
+  async function doBake() {
+    bakeBtn.disabled = true; bakeBtn.textContent = 'Baking…';
+    try {
+      await new Promise(r => setTimeout(r, 20));
+      const r = baker.bake(p, p.w, p.h, p.ss);
+      const imageId = await registerBakedRaster(r);
+      const params = { imageId, meshId, bake: deepClone(p), embed: st.embed };
+      if (existing) { cmd.setParams(existing.id, params); cmd.select([existing.id]); }
+      else {
+        if (!state.root.children.length) { cmd.setDocument({ w: p.w, h: p.h }, { transient: true }); }
+        cmd.add('mesh', params, { name: mesh.name, node: { x: state.doc.w / 2, y: state.doc.h / 2 } });
+      }
+      setMsg(`Baked ${mesh.name} at ${p.w}×${p.h}`); closeModal();
+    } catch (e) { alert('Bake failed: ' + e.message); bakeBtn.disabled = false; bakeBtn.textContent = 'Bake layer'; }
+  }
+  function cleanup() { $('#modalBox').classList.remove('wide'); if (baker) baker.dispose(); }
+  touch();
+
+  // ---- small field helpers (local so the dialog is self-contained)
+  function num(get, set, step) { const i = document.createElement('input'); i.type = 'number'; i.step = step; i.value = +(+get()).toFixed(4); i.style.width = '72px'; i.addEventListener('change', () => { const v = parseFloat(i.value); if (!isNaN(v)) set(v); }); st.fields.push([i, get]); return i; }
+  function sel(options, v, set) { const s = document.createElement('select'); for (const [k, l] of Object.entries(options)) { const o = el('option', null, l); o.value = k; s.appendChild(o); } s.value = v; s.addEventListener('change', () => set(s.value)); return s; }
+  function check(label, get, set) { const l = el('label', 'wide'); const c = document.createElement('input'); c.type = 'checkbox'; c.checked = !!get(); c.addEventListener('change', () => set(c.checked)); l.append(c, ' ' + label); st.fields.push([c, get]); return l; }
+}
+
+Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get defaultBakeParams() { return defaultBakeParams; }, get openMeshImport() { return openMeshImport; } }));
+});
 __define('./ui/props.js', function (__exports) {
 // Properties panel, generated from kind and modifier schemas.
 const { state, findNode, selectedNodes, primarySelected, depthToDisplay, displayToDepth, depthStep, depthDecimals, UNITS } = __require('./app/state.js');
@@ -2098,6 +3196,8 @@ const { KINDS, BLEND_MODES } = __require('./engine/kinds.js');
 const { MODIFIERS } = __require('./engine/modifiers.js');
 const { TEXT_LAYOUTS } = __require('./kinds/text.js');
 const { fontPicker, listInstalledFonts } = __require('./ui/fontpicker.js');
+const { openMeshImport } = __require('./ui/meshImport.js');
+const { toolEditor, exportTool, saveToLibrary } = __require('./ui/tools.js');
 const { $, el, btn } = __require('./ui/dom.js');
 const { clamp } = __require('./engine/util.js');
 let root; const tracked = [];
@@ -2230,6 +3330,19 @@ function buildProps() {
     root.appendChild(ks);
   } else if (def.hint) { const ks = section(def.label); ks.appendChild(el('div', 'hint', def.hint)); root.appendChild(ks); }
   if (n.kind === 'image') { const im = state.images[n.params.imageId]; if (im) root.lastChild.insertBefore(el('div', 'hint', `Source ${im.w}×${im.h}, ${im.bits}-bit`), root.lastChild.children[1]); }
+  if (def.isTool) {
+    const ts2 = section('Tool'); const t = def.tool;
+    if (n._error) ts2.appendChild(el('div', 'hint', 'Render error: ' + n._error)).style.color = '#e0575b';
+    const tb2 = el('div', 'btnrow'); tb2.append(btn('Edit tool…', () => toolEditor(t, () => buildProps())), btn('Export tool', () => exportTool(t)), btn('Save to my tools', () => saveToLibrary(t))); ts2.appendChild(tb2);
+    root.appendChild(ts2);
+  }
+  if (n.kind === 'mesh') {
+    const ms = section('Mesh'); const m = state.meshes[n.params.meshId]; const b = n.params.bake || {};
+    ms.appendChild(el('div', 'hint', m ? `${m.name}: ${m.triangles.toLocaleString()} triangles. Baked ${b.w}×${b.h}, angles ${(b.rot || []).map(v => +v.toFixed(1)).join(' / ')}, near ${(+b.near).toFixed(3)}, far ${(+b.far).toFixed(3)}.` : 'The source mesh is not in this project (it was not embedded), so the layer cannot be re-baked.'));
+    const mb = el('div', 'btnrow'); if (m) mb.appendChild(btn('Re-bake…', () => openMeshImport({ meshId: n.params.meshId, nodeId: n.id }), 'primary small'));
+    mb.appendChild(checkRow('Embed mesh in project file', () => n.params.embed !== false, v => cmd.setParam(id, 'embed', v)).firstChild); ms.appendChild(mb);
+    root.appendChild(ms);
+  }
 
   // ---- modifiers
   const addSel = document.createElement('select'); addSel.className = 'small';
@@ -2258,6 +3371,82 @@ function multiProps(sel) {
 }
 
 Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get initProps() { return initProps; }, get refreshProps() { return refreshProps; }, get buildProps() { return buildProps; } }));
+});
+__define('./ui/tools.js', function (__exports) {
+// Tools menu, tool editor, import/export, and the user's tool library (IndexedDB).
+const { state } = __require('./app/state.js');
+const cmd = __require('./app/commands.js');
+const { commit } = __require('./app/history.js');
+const { clearCaches } = __require('./app/render.js');
+const { idb } = __require('./app/io.js');
+const { registerTool, validateTool, testTool, tools, TOOL_FORMAT } = __require('./kinds/tool.js');
+const { BUILTIN_TOOLS } = __require('./tools/builtin.js');
+const { openModal, closeModal } = __require('./ui/dialogs.js');
+const { $, el, btn, setMsg, downloadBlob, readAsText } = __require('./ui/dom.js');
+let library = {}; // id -> def (persisted)
+async function loadLibrary() { try { library = (await idb.get('tools')) || {}; } catch (e) { library = {}; } }
+async function saveLibrary() { try { await idb.set('tools', library); } catch (e) { } }
+
+// Install a tool into the project (and optionally the library). Returns the kind name.
+async function installTool(def, { toLibrary = false, silent = false } = {}) {
+  const errors = validateTool(def); if (errors.length) throw new Error(errors.join('; '));
+  const err = await testTool(def); if (err) throw new Error('Tool test render failed: ' + err);
+  const kind = registerTool(def); state.tools[def.id] = def;
+  if (toLibrary) { library[def.id] = JSON.parse(JSON.stringify(def, (k, v) => k.startsWith('_') ? undefined : v)); await saveLibrary(); }
+  clearCaches(); if (!silent) setMsg(`Tool "${def.name}" ready`);
+  return kind;
+}
+function addToolNode(def, params = {}) {
+  const n = cmd.add('tool:' + def.id, params, { name: def.name });
+  return n;
+}
+function exportTool(def) { downloadBlob(new Blob([JSON.stringify(def, (k, v) => k.startsWith('_') ? undefined : v, 2)], { type: 'application/json' }), def.id + '.tool.json'); }
+
+function initToolsMenu() {
+  const menu = el('div'); menu.id = 'toolsMenu'; document.body.appendChild(menu);
+  const b = $('#bTools');
+  const close = () => menu.classList.remove('on');
+  b.addEventListener('click', e => { e.stopPropagation(); if (menu.classList.contains('on')) return close(); render(); const r = b.getBoundingClientRect(); menu.style.left = r.left + 'px'; menu.style.top = (r.bottom + 4) + 'px'; menu.classList.add('on'); });
+  window.addEventListener('pointerdown', e => { if (!menu.contains(e.target) && e.target !== b) close(); }, true);
+  $('#fileTool').addEventListener('change', async e => { for (const f of Array.from(e.target.files)) { try { const def = JSON.parse(await readAsText(f)); await installTool(def, { toLibrary: true }); addToolNode(def); } catch (err) { alert('Could not import tool: ' + err.message); } } e.target.value = ''; });
+  function item(label, fn, cls = '') { const d = el('div', 'titem ' + cls, label); d.addEventListener('click', async () => { close(); try { await fn(); } catch (err) { alert(err.message); } }); return d; }
+  function render() {
+    menu.innerHTML = '';
+    const proj = Object.values(state.tools), lib = Object.values(library).filter(t => !state.tools[t.id]), builtin = BUILTIN_TOOLS.filter(t => !state.tools[t.id] && !library[t.id]);
+    const section = (title, list, install) => { if (!list.length) return; menu.appendChild(el('div', 'thdr', title)); for (const t of list) { const d = item(t.name, async () => { if (install) await installTool(t, { silent: true }); addToolNode(state.tools[t.id] || t); }); d.title = t.description || ''; menu.appendChild(d); } };
+    section('In this project', proj, false); section('My tools', lib, true); section('Examples', builtin, true);
+    menu.appendChild(el('div', 'tsep'));
+    menu.appendChild(item('Import tool file…', () => $('#fileTool').click()));
+    menu.appendChild(item('New tool…', () => toolEditor(null)));
+    menu.appendChild(el('div', 'hint', 'A tool is a JSON file with a parameter schema and a small render function. Tools you write or import here stay in "My tools"; the ones a project uses are saved inside it.'));
+  }
+}
+
+// JSON editor for a tool (new or existing). onSave(def) is called after a successful install.
+function toolEditor(def, onSave) {
+  const body = el('div'); const ta = document.createElement('textarea'); ta.rows = 22; ta.spellcheck = false; ta.style.fontFamily = 'Menlo, Consolas, monospace'; ta.style.fontSize = '11px';
+  ta.value = JSON.stringify(def || {
+    format: TOOL_FORMAT, id: 'my-tool', name: 'My tool', version: 1, description: 'What it makes.',
+    schema: { radius: { type: 'number', label: 'Radius (px)', default: 200, min: 1, max: 4000, step: 1, slider: true }, high: { type: 'depth', label: 'Height', default: 1 } },
+    measure: 'return { w: 2 * p.radius, h: 2 * p.radius };',
+    render: 'lib.each((u, v) => { const d = lib.sdf.circle(u, v, p.radius); const c = lib.aa(d); return c > 0 ? [p.high * lib.profile("dome", d, p.radius), c] : null; });',
+  }, (k, v) => k.startsWith('_') ? undefined : v, 2);
+  const status = el('div', 'hint'); body.append(ta, status);
+  const lib = document.createElement('input'); lib.type = 'checkbox'; lib.checked = true; const ll = el('label', 'wide'); ll.append(lib, ' Also save to my tools'); body.appendChild(ll);
+  openModal(def ? `Edit tool: ${def.name}` : 'New tool', body, [
+    btn('Cancel', closeModal, ''),
+    btn('Test', async () => { try { const d = JSON.parse(ta.value); const errs = validateTool(d); if (errs.length) throw new Error(errs.join('; ')); const err = await testTool(d); status.textContent = err ? 'Test render failed: ' + err : 'Test render OK'; } catch (e) { status.textContent = e.message; } }),
+    btn('Save', async () => { try { const d = JSON.parse(ta.value); await installTool(d, { toLibrary: lib.checked }); commit(); closeModal(); if (onSave) onSave(d); else if (!def) addToolNode(d); } catch (e) { status.textContent = e.message; } }, 'primary'),
+  ]);
+  $('#modalBox').classList.add('wide');
+  const old = closeModal; // widen only for this dialog
+  const observer = new MutationObserver(() => { if (!$('#modal').classList.contains('on')) { $('#modalBox').classList.remove('wide'); observer.disconnect(); } });
+  observer.observe($('#modal'), { attributes: true });
+}
+function libraryTools() { return library; }
+async function saveToLibrary(def) { library[def.id] = JSON.parse(JSON.stringify(def, (k, v) => k.startsWith('_') ? undefined : v)); await saveLibrary(); setMsg(`Saved "${def.name}" to my tools`); }
+
+Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get loadLibrary() { return loadLibrary; }, get installTool() { return installTool; }, get addToolNode() { return addToolNode; }, get exportTool() { return exportTool; }, get initToolsMenu() { return initToolsMenu; }, get toolEditor() { return toolEditor; }, get libraryTools() { return libraryTools; }, get saveToLibrary() { return saveToLibrary; } }));
 });
 __define('./ui/tree.js', function (__exports) {
 // Layer tree panel: nested groups, visibility, rename, drag to reorder / into groups.

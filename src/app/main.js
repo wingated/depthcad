@@ -4,7 +4,7 @@ import * as cmd from './commands.js';
 import { onChange } from './commands.js';
 import { undo, redo, canUndo, canRedo, onHistory, commit } from './history.js';
 import { invalidate, startLoop, pruneCaches, clearCaches } from './render.js';
-import { importImageFile, importFontFile, openProjectFile, saveProject, newProject, autosave, restoreAutosave, registerImage, loadProject, renderFull } from './io.js';
+import { importImageFile, importFontFile, importMeshFile, openProjectFile, saveProject, newProject, autosave, restoreAutosave, registerImage, loadProject, renderFull } from './io.js';
 import { serialize } from './state.js';
 import { encodeGrayPNG } from '../engine/png.js';
 import { toU16, toU8 } from '../engine/dither.js';
@@ -13,6 +13,11 @@ import { initTree, buildTree, refreshSelection } from '../ui/tree.js';
 import { initProps, buildProps, refreshProps } from '../ui/props.js';
 import { initView3d, view3d } from '../ui/view3d.js';
 import { initDialogs, documentDialog, exportDialog, helpDialog } from '../ui/dialogs.js';
+import { openMeshImport } from '../ui/meshImport.js';
+import { initToolsMenu, loadLibrary, installTool, addToolNode } from '../ui/tools.js';
+import { initAgent, setAdapterFactory, documentSummary } from '../ui/agent.js';
+import { BUILTIN_TOOLS } from '../tools/builtin.js';
+import '../kinds/mesh.js';
 import { ringPreset, rectPreset } from '../kinds/shape.js';
 import '../kinds/group.js';
 import '../kinds/mask.js';
@@ -53,6 +58,8 @@ function wire() {
   $('#bRect').addEventListener('click', () => { const n = cmd.add('shape'); rectPreset(n); cmd.setNodeProps(n.id, { name: 'Rect' }); });
   $('#bRing').addEventListener('click', () => { const n = cmd.add('shape'); ringPreset(n); cmd.setNodeProps(n.id, { name: 'Ring' }); });
   $('#bText').addEventListener('click', () => cmd.add('text'));
+  $('#bMesh').addEventListener('click', () => $('#fileMesh').click());
+  $('#fileMesh').addEventListener('change', async e => { const f = e.target.files[0]; if (f) { try { const id = await importMeshFile(f); openMeshImport({ meshId: id }); } catch (err) { alert('Could not load mesh: ' + err.message); } } e.target.value = ''; });
   $('#bMask').addEventListener('click', () => { const n = selectedNodes()[0]; if (n && n.kind !== 'mask') cmd.addMaskTo(n.id, 'ellipse'); else cmd.add('mask'); });
   $('#bGroup').addEventListener('click', () => cmd.group());
   $('#bUngroup').addEventListener('click', () => cmd.ungroup());
@@ -63,7 +70,6 @@ function wire() {
   $('#bExport').addEventListener('click', exportDialog);
   $('#bHelp').addEventListener('click', helpDialog);
   $('#stDoc').addEventListener('click', documentDialog);
-  $('#bDoc').addEventListener('click', documentDialog);
   document.addEventListener('depthcad:documentDialog', documentDialog);
   $('#bUp').addEventListener('click', () => { for (const id of state.sel) cmd.moveInStack(id, 1); });
   $('#bDown').addEventListener('click', () => { for (const id of state.sel) cmd.moveInStack(id, -1); });
@@ -91,6 +97,7 @@ function wire() {
       try {
         if (/\.(json|dcad)$/i.test(f.name)) { await openProjectFile(f); refreshAll(); autosave(); }
         else if (/\.(ttf|otf|woff2?)$/i.test(f.name)) await importFontFile(f);
+        else if (/\.(stl|obj)$/i.test(f.name)) { const id = await importMeshFile(f); openMeshImport({ meshId: id }); }
         else if (f.type.startsWith('image/')) { const first = !state.root.children.length; await importImageFile(f); if (first) fitView(); }
       } catch (err) { alert(err.message); }
     }
@@ -133,14 +140,15 @@ async function pasteFromClipboard() {
 // Debug / scripting API (also used by the headless tests)
 window.depthcad = {
   state, cmd, undo, redo, commit, findNode, serialize, refreshAll, fitView, renderFull,
-  io: { importImageFile, importFontFile, openProjectFile, saveProject, newProject, registerImage, loadProject },
-  async encode16() { const out = renderFull(); return encodeGrayPNG(out.w, out.h, toU16(out.height), 16); },
-  async encode8(dither = 'fs') { const out = renderFull(); return encodeGrayPNG(out.w, out.h, toU8(out.height, out.w, out.h, dither), 8); },
+  io: { importImageFile, importFontFile, importMeshFile, openProjectFile, saveProject, newProject, registerImage, loadProject }, openMeshImport,
+  tools: { installTool, addToolNode, BUILTIN_TOOLS }, agent: { setAdapterFactory, documentSummary },
+  async encode16() { const out = await renderFull(); return encodeGrayPNG(out.w, out.h, toU16(out.height), 16); },
+  async encode8(dither = 'fs') { const out = await renderFull(); return encodeGrayPNG(out.w, out.h, toU8(out.height, out.w, out.h, dither), 8); },
   toBase64(bytes) { let s = ''; for (let i = 0; i < bytes.length; i += 8192) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192)); return btoa(s); },
 };
 
 (async () => {
-  initCanvas(); initTree(); initProps(); initView3d(); initDialogs(); wire();
+  initCanvas(); initTree(); initProps(); initView3d(); initDialogs(); wire(); initToolsMenu(); await loadLibrary(); window.depthcad.agent.ui = initAgent();
   let restored = false;
   try { restored = await restoreAutosave(); if (restored) setMsg('Restored autosaved project'); } catch (e) { console.warn('autosave restore failed', e); }
   if (!restored) newProject();
