@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DepthCAD</title>
+<style>
+:root{--bg:#1b1c1f;--panel:#25262a;--panel2:#2c2d32;--border:#3b3c42;--text:#dcdcdc;--muted:#8f9096;--accent:#4c9aff;--accent2:#ffb347;--accent3:#8fd18f;--input:#17181b;--danger:#e0575b}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;overflow:hidden;user-select:none;-webkit-user-select:none}
+#app{display:grid;grid-template-rows:40px 1fr 22px;grid-template-columns:250px 1fr 320px;height:100%;width:100%}
+#toolbar{grid-column:1/4;display:flex;align-items:center;gap:4px;padding:0 8px;background:var(--panel);border-bottom:1px solid var(--border);overflow:hidden;white-space:nowrap}
+#toolbar .sep{width:1px;height:22px;background:var(--border);margin:0 4px;flex:none}
+#toolbar .brand{font-weight:700;letter-spacing:.5px;margin-right:6px;color:#fff}
+#toolbar .brand span{color:var(--accent)}
+#toolbar .grp{display:flex;gap:2px}
+button{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font:inherit;cursor:pointer;white-space:nowrap}
+button:hover{background:#36373d;border-color:#4a4b52}
+button:active{background:#1f2023}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.primary:hover{background:#3d8cf0}
+button.danger:hover{background:var(--danger);border-color:var(--danger);color:#fff}
+button.small{padding:1px 6px;font-size:11px}
+button.icon{padding:2px 6px;font-size:13px;min-width:26px}
+button:disabled{opacity:.35;cursor:default}
+button.lockbtn{padding:0 4px;font-size:11px;margin-left:2px}
+textarea,input[type=text],input[type=number],select{background:var(--input);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:3px 5px;font:inherit;min-width:0}
+input[type=number]{width:64px}
+input[type=text]:focus,input[type=number]:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+textarea{width:100%;resize:vertical;font-family:inherit;user-select:text;-webkit-user-select:text}
+input[type=range]{flex:1;min-width:40px;accent-color:var(--accent)}
+input[type=checkbox]{accent-color:var(--accent);margin:0}
+label{color:var(--muted)}
+#left{background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
+#right{background:var(--panel);border-left:1px solid var(--border);overflow-y:auto;min-height:0}
+.ptitle{padding:6px 10px;font-weight:600;color:#fff;background:var(--panel2);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.ptitle .btns{display:flex;gap:3px}
+#layers{flex:1;overflow-y:auto;padding:4px}
+.layer{display:flex;align-items:center;gap:5px;padding:4px 6px;border-radius:4px;cursor:pointer;border:1px solid transparent}
+.layer:hover{background:var(--panel2)}
+.layer.sel{background:#2f3f57;border-color:var(--accent)}
+.layer.hidden .lname{opacity:.45}
+.layer.mask .lname{color:var(--accent2)}
+.layer.group .lname{color:var(--accent3)}
+.layer .tri{width:12px;color:var(--muted);flex:none;font-size:10px}
+.layer .eye{width:18px;text-align:center;opacity:.8;flex:none}
+.layer .ico{width:16px;text-align:center;color:var(--muted);flex:none}
+.layer .lname{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.layer .mode,.layer .lock{font-size:10px;color:var(--muted);flex:none}
+.layer.dragover-top{box-shadow:0 -2px 0 var(--accent)}
+.layer.dragover-bot{box-shadow:0 2px 0 var(--accent)}
+.layer.dragover-into{background:#2f4a3a;border-color:var(--accent3)}
+#center{display:flex;min-width:0;min-height:0;position:relative}
+#pane2d{flex:1 1 60%;position:relative;min-width:0;background:#111}
+#splitter{width:6px;background:var(--panel);border-left:1px solid var(--border);border-right:1px solid var(--border);cursor:col-resize;flex:none}
+#pane3d{flex:1 1 40%;position:relative;min-width:0;background:#0d0e11}
+#pane3d.hidden,#splitter.hidden{display:none}
+#view,#gl{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+.overlay{position:absolute;left:8px;top:8px;display:flex;gap:6px;align-items:center;background:rgba(30,31,35,.85);border:1px solid var(--border);border-radius:5px;padding:4px 8px;backdrop-filter:blur(4px)}
+.overlay label{margin-left:6px}
+#ctl3d{right:8px;left:auto;flex-wrap:wrap;max-width:calc(100% - 16px)}
+#ctl3d input[type=range]{width:110px}
+#status{grid-column:1/4;background:var(--panel);border-top:1px solid var(--border);display:flex;align-items:center;gap:16px;padding:0 10px;color:var(--muted);font-size:11px;overflow:hidden;white-space:nowrap}
+#status .msg{color:var(--text)}
+#status #stDoc{cursor:pointer;text-decoration:underline dotted}
+#status #stDoc:hover{color:var(--text)}
+.sec{border-bottom:1px solid var(--border);padding:6px 10px 8px}
+.sec h4{margin:4px 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);display:flex;justify-content:space-between;align-items:center}
+.row{display:flex;align-items:center;gap:6px;margin:3px 0;min-height:22px}
+.row>label{width:84px;flex:none;overflow:hidden;text-overflow:ellipsis}
+.row>label.wide{width:auto;display:flex;align-items:center;gap:4px}
+.row input[type=number].n{width:60px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:3px 8px}
+.grid2 .row{margin:0}
+.grid2 .row>label{width:28px}
+.grid2 .row input{flex:1;width:100%}
+.btnrow{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+.modbox{border:1px solid var(--border);border-radius:4px;padding:4px 6px;margin:4px 0}
+.modbox.off{opacity:.5}
+.modbox .hdr{display:flex;align-items:center;gap:4px;margin-bottom:2px}
+.modbox .hdr .t{flex:1;font-weight:600}
+.hint{color:var(--muted);font-size:11px;line-height:1.5;margin:6px 0}
+kbd{background:var(--input);border:1px solid var(--border);border-radius:3px;padding:0 4px;font-size:10px}
+canvas.curve{display:block;width:260px;height:160px;border:1px solid var(--border);border-radius:4px;margin:4px 0;cursor:crosshair;touch-action:none}
+#fontMenu{position:fixed;z-index:30;background:var(--panel2);border:1px solid var(--border);border-radius:6px;max-height:340px;overflow-y:auto;min-width:260px;box-shadow:0 8px 24px rgba(0,0,0,.55);display:none;padding:3px 0}
+#fontMenu.on{display:block}
+#fontMenu .fhdr{padding:6px 10px 2px;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
+#fontMenu .fopt{padding:4px 10px;font-size:18px;line-height:1.25;cursor:pointer;display:flex;align-items:baseline;gap:10px;white-space:nowrap;overflow:hidden}
+#fontMenu .fopt .sub{margin-left:auto;font:10px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--muted);flex:none}
+#fontMenu .fopt:hover,#fontMenu .fopt.active{background:#3a4a63}
+#fontMenu .fopt.action{font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--accent)}
+#fontMenu .fopt.empty{font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--muted);cursor:default}
+.fontpick{position:relative;flex:1;display:flex}
+.fontpick input{flex:1;padding-right:20px}
+.fontpick .caret{position:absolute;right:6px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none;font-size:10px}
+#drop{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(76,154,255,.18);border:3px dashed var(--accent);font-size:20px;color:#fff;pointer-events:none;z-index:10}
+#drop.on{display:flex}
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:20}
+#modal.on{display:flex}
+#modal .box{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px 20px;min-width:340px;max-width:560px;max-height:90vh;overflow-y:auto}
+#modal h3{margin:0 0 10px}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="toolbar">
+    <div class="brand">Depth<span>CAD</span></div>
+    <button id="bNew" title="New project">New</button>
+    <button id="bOpen" title="Open project (Ctrl+O)">Open</button>
+    <button id="bSave" title="Save project (Ctrl+S)">Save</button>
+    <input type="text" id="projName" value="untitled" style="width:110px" title="Project name">
+    <div class="sep"></div>
+    <button id="bImport" class="primary" title="Import a depth map image (8- or 16-bit PNG) as a new layer">+ Image</button>
+    <button id="bRect" title="Add rectangle layer">+ Rect</button>
+    <button id="bRing" title="Add ring / ellipse layer">+ Ring</button>
+    <button id="bText" title="Add text layer">+ Text</button>
+    <button id="bMask" title="Add a mask to the selected layer (or a free mask)">+ Mask</button>
+    <div class="sep"></div>
+    <button id="bGroup" class="need2" title="Group selection (Ctrl+G)">Group</button>
+    <button id="bUngroup" title="Ungroup (Ctrl+Shift+G)">Ungroup</button>
+    <div class="sep"></div>
+    <div class="grp" title="Align (one layer: to the document; several: to each other)">
+      <button class="icon needsel" data-align="left" title="Align left">⫷</button>
+      <button class="icon needsel" data-align="hcenter" title="Align horizontal centers">⫿</button>
+      <button class="icon needsel" data-align="right" title="Align right">⫸</button>
+      <button class="icon needsel" data-align="top" title="Align top">⤒</button>
+      <button class="icon needsel" data-align="vcenter" title="Align vertical centers">⫶</button>
+      <button class="icon needsel" data-align="bottom" title="Align bottom">⤓</button>
+      <button class="icon need3" data-dist="horizontal" title="Distribute horizontally">⇹</button>
+      <button class="icon need3" data-dist="vertical" title="Distribute vertically">⇳</button>
+    </div>
+    <div class="sep"></div>
+    <button id="bUndo" title="Undo (Ctrl+Z)">Undo</button>
+    <button id="bRedo" title="Redo (Ctrl+Shift+Z)">Redo</button>
+    <div class="sep"></div>
+    <button id="bFit" title="Fit document in view (F)">Fit</button>
+    <button id="bZoom1" title="Zoom 100% (1)">1:1</button>
+    <label>Preview</label>
+    <select id="previewMax" title="Resolution of the interactive preview (export is always full resolution)">
+      <option value="512">512</option><option value="1024" selected>1024</option><option value="2048">2048</option><option value="99999">Full</option>
+    </select>
+    <button id="b3d" title="Toggle 3D view">3D</button>
+    <div class="sep"></div>
+    <button id="bDoc" title="Document settings">Doc…</button>
+    <button id="bExport" class="primary" title="Export grayscale PNG (Ctrl+E)">Export…</button>
+    <button id="bHelp" title="Help">?</button>
+    <input type="file" id="fileImg" accept="image/*" multiple style="display:none">
+    <input type="file" id="fileProj" accept=".json,.dcad,application/json" style="display:none">
+    <input type="file" id="fileFont" accept=".ttf,.otf,.woff,.woff2,font/*" multiple style="display:none">
+  </div>
+
+  <div id="left">
+    <div class="ptitle">Layers
+      <div class="btns">
+        <button class="small needsel" id="bUp" title="Move up">▲</button>
+        <button class="small needsel" id="bDown" title="Move down">▼</button>
+        <button class="small needsel" id="bDup" title="Duplicate (Ctrl+D)">⧉</button>
+        <button class="small danger needsel" id="bDel" title="Delete (Del)">✕</button>
+      </div>
+    </div>
+    <div id="layers"></div>
+    <div class="hint" style="padding:6px 10px;border-top:1px solid var(--border)">Top of list = top of stack. Drag to reorder or into a group. A <span style="color:var(--accent2)">mask</span> clips the layers above it in its group.</div>
+  </div>
+
+  <div id="center">
+    <div id="pane2d">
+      <canvas id="view"></canvas>
+      <div class="overlay" id="ctl2d">
+        <span id="zoomLbl">100%</span>
+        <label><input type="checkbox" id="showOutlines" checked> Outlines</label>
+      </div>
+      <div id="drop">Drop depth-map images, fonts or projects to import</div>
+    </div>
+    <div id="splitter"></div>
+    <div id="pane3d">
+      <canvas id="gl"></canvas>
+      <div class="overlay" id="ctl3d">
+        <label>Height</label><input type="range" id="exag" min="0.02" max="3" step="0.01" value="0.6" title="Height exaggeration">
+        <label>Grid</label>
+        <select id="gridRes" title="Heightfield grid resolution (longest side). Set Preview to Full for the high settings to add detail."><option selected>1024</option><option>2048</option><option>4096</option></select>
+        <label>Shade</label>
+        <select id="shade"><option value="0">Clay</option><option value="1">Gray by height</option><option value="2">Heat</option></select>
+        <label><input type="checkbox" id="smooth3d" checked> Smooth</label>
+        <button class="small" id="bReset3d">Reset view</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="right"><div id="props"></div></div>
+
+  <div id="status">
+    <span id="stPos">–</span>
+    <span id="stDoc" title="Document settings"></span>
+    <span class="msg" id="stMsg"></span>
+  </div>
+</div>
+
+<div id="modal"><div class="box" id="modalBox"></div></div>
+<!-- @scripts -->
+</body>
+</html>

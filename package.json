@@ -4,9 +4,13 @@
   "description": "Browser-based layer compositor for building grayscale depth maps for laser engraving",
   "private": true,
   "scripts": {
-    "test": "node tests/smoke.js"
+    "build": "node build.js",
+    "test": "node --test tests/engine.test.js && node tests/smoke.js",
+    "test:unit": "node --test tests/engine.test.js",
+    "test:smoke": "node tests/smoke.js"
   },
   "devDependencies": {
     "puppeteer-core": "^23.0.0"
-  }
+  },
+  "type": "module"
 }
