@@ -58,6 +58,7 @@
         "flat": "Flat",
         "linear": "Cone",
         "dome": "Dome",
+        "scallop": "Scallop",
         "cosine": "Smooth"
       }
     },

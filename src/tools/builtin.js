@@ -9,7 +9,7 @@ export const BUILTIN_TOOLS = [
       size: { type: 'number', label: 'Star size (px)', default: 60, min: 1, max: 2000, step: 1, slider: true },
       inner: { type: 'number', label: 'Star inner %', default: 40, min: 5, max: 95, step: 1, slider: true },
       points: { type: 'int', label: 'Points', default: 5, min: 3, max: 12, step: 1, slider: true },
-      profile: { type: 'enum', label: 'Profile', default: 'dome', options: { flat: 'Flat', linear: 'Cone', dome: 'Dome', cosine: 'Smooth' } },
+      profile: { type: 'enum', label: 'Profile', default: 'dome', options: { flat: 'Flat', linear: 'Cone', dome: 'Dome', scallop: 'Scallop', cosine: 'Smooth' } },
       high: { type: 'depth', label: 'Height', default: 1 },
       low: { type: 'depth', label: 'Base height', default: 0 },
       spin: { type: 'number', label: 'Spin (°)', default: 0, min: -180, max: 180, step: 1, slider: true },

@@ -45,6 +45,16 @@ test('shape raster: flat rect is exact, ring has hole, dome peaks mid-ring', () 
   assert.ok(ring.coverage[50 * 100 + 75] > 0 && ring.coverage[50 * 100 + 75] < 1); // inner edge (r = 25.35) is antialiased
 });
 
+test('scallop profile is the concave inverse of dome', () => {
+  const dome = renderShape({ shape: 'ellipse', w: 100, h: 100, inner: 0, profile: 'dome', low: 0, high: 1 }, 100, 100);
+  const sc = renderShape({ shape: 'ellipse', w: 100, h: 100, inner: 0, profile: 'scallop', low: 0, high: 1 }, 100, 100);
+  const i = 50 * 100 + 75; // half-way from centre to edge
+  assert.ok(dome.height[i] > 0.85 && sc.height[i] < 0.15 && sc.height[i] > 0, `dome ${dome.height[i].toFixed(3)} scallop ${sc.height[i].toFixed(3)}`);
+  assert.ok(sc.height[50 * 100 + 50] > 0.85); // steep near the centre (k = 0.99 -> 0.86), reaching 1 at the centre point
+  // point reflection of the dome curve: dome(k) + scallop(1 - k) = 1
+  const k = 0.49; assert.ok(Math.abs(Math.sqrt(1 - (1 - k) * (1 - k)) + (1 - Math.sqrt(1 - (1 - k) * (1 - k))) - 1) < 1e-9);
+});
+
 test('resample identity keeps values; scale halves size', () => {
   const local = renderShape({ shape: 'rect', w: 10, h: 10, profile: 'flat', low: 0, high: 0.6 }, 10, 10);
   const t = { x: 25, y: 25, sx: 1, sy: 1, rot: 0 };

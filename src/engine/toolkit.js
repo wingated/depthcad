@@ -30,6 +30,7 @@ export function makeLib(r) {
   const profile = (kind, d, dmax, bevel = 1) => {
     if (kind === 'linear') return clamp01(d / dmax);
     if (kind === 'dome') { const k = clamp01(d / dmax); return Math.sqrt(1 - (1 - k) * (1 - k)); }
+    if (kind === 'scallop') { const k = clamp01(d / dmax); return 1 - Math.sqrt(1 - k * k); }
     if (kind === 'cosine') { const k = clamp01(d / dmax); return 0.5 - 0.5 * Math.cos(Math.PI * k); }
     if (kind === 'bevel') return clamp01(d / Math.max(1e-6, bevel));
     return 1;

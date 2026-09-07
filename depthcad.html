@@ -1815,12 +1815,13 @@ function shapeDist(shape, w, h, inner, corner, u, v) {
   return d;
 }
 
-const PROFILES = { flat: 'Flat', linear: 'Linear (cone)', dome: 'Dome (round)', cosine: 'Smooth (cosine)', bevel: 'Bevel (px)' };
+const PROFILES = { flat: 'Flat', linear: 'Linear (cone)', dome: 'Dome (round)', scallop: 'Scallop (cove)', cosine: 'Smooth (cosine)', bevel: 'Bevel (px)' };
 
 function profileT(profile, dist, dmax, bevel) {
   switch (profile) {
     case 'linear': return clamp01(dist / dmax);
     case 'dome': { const k = clamp01(dist / dmax); return Math.sqrt(1 - (1 - k) * (1 - k)); }
+    case 'scallop': { const k = clamp01(dist / dmax); return 1 - Math.sqrt(1 - k * k); } // concave: the inverse of dome
     case 'cosine': { const k = clamp01(dist / dmax); return 0.5 - 0.5 * Math.cos(Math.PI * k); }
     case 'bevel': return clamp01(dist / Math.max(1e-6, bevel));
     default: return 1;
@@ -1888,6 +1889,7 @@ function makeLib(r) {
   const profile = (kind, d, dmax, bevel = 1) => {
     if (kind === 'linear') return clamp01(d / dmax);
     if (kind === 'dome') { const k = clamp01(d / dmax); return Math.sqrt(1 - (1 - k) * (1 - k)); }
+    if (kind === 'scallop') { const k = clamp01(d / dmax); return 1 - Math.sqrt(1 - k * k); }
     if (kind === 'cosine') { const k = clamp01(d / dmax); return 0.5 - 0.5 * Math.cos(Math.PI * k); }
     if (kind === 'bevel') return clamp01(d / Math.max(1e-6, bevel));
     return 1;
@@ -2134,7 +2136,7 @@ registerKind({
     low: { type: 'depth', label: 'Low value', default: 0 },
     high: { type: 'depth', label: 'High value', default: 1 },
   },
-  hint: 'Profile shapes the height from the edge (Low) to the middle (High). A ring with the Dome profile is a torus; Bevel ramps over a fixed number of pixels.',
+  hint: 'Profile shapes the height from the edge (Low) to the middle (High). Dome is convex (a ring with Dome is a torus), Scallop is the concave inverse (a cove), Bevel ramps over a fixed number of pixels.',
   init(n, doc) { const s = Math.round(Math.min(doc.w, doc.h) * 0.5); n.params.w = s; n.params.h = s; n.params.bevel = Math.round(s * 0.1); },
   measure(n) { return { w: n.params.w, h: n.params.h }; },
   render(n, { cw, ch }) { const p = n.params; return renderShape({ shape: p.shape, w: p.w, h: p.h, inner: p.inner, corner: p.corner, profile: p.profile, bevel: p.bevel, low: p.low, high: p.high }, cw, ch); },
@@ -2347,7 +2349,7 @@ const BUILTIN_TOOLS = [
       size: { type: 'number', label: 'Star size (px)', default: 60, min: 1, max: 2000, step: 1, slider: true },
       inner: { type: 'number', label: 'Star inner %', default: 40, min: 5, max: 95, step: 1, slider: true },
       points: { type: 'int', label: 'Points', default: 5, min: 3, max: 12, step: 1, slider: true },
-      profile: { type: 'enum', label: 'Profile', default: 'dome', options: { flat: 'Flat', linear: 'Cone', dome: 'Dome', cosine: 'Smooth' } },
+      profile: { type: 'enum', label: 'Profile', default: 'dome', options: { flat: 'Flat', linear: 'Cone', dome: 'Dome', scallop: 'Scallop', cosine: 'Smooth' } },
       high: { type: 'depth', label: 'Height', default: 1 },
       low: { type: 'depth', label: 'Base height', default: 0 },
       spin: { type: 'number', label: 'Spin (°)', default: 0, min: -180, max: 180, step: 1, slider: true },
@@ -2469,7 +2471,7 @@ function documentSummary() {
 const SYSTEM = () => `You are the assistant inside DepthCAD, a browser app that builds grayscale depth maps for laser engraving by compositing layers.
 Conventions: depth values are normalized floats 0..1 (0 = deepest/farthest, 1 = highest); the user sees them as ${UNITS[state.doc.unit]}. Coordinates are document pixels, origin top-left, y down; every layer has a centre (x, y), scale (sx, sy), rotation in degrees, a blend mode (max = union, min = clamp, replace, cut = erase below inside, keep = erase below outside), and a modifier stack (levels, curve, clamp, feather, blur, offset). Layers composite bottom to top with per-pixel max. Groups contain layers; a mask node clips the siblings above it inside its group. Shapes and masks store their size in params.w/params.h; images and text use sx/sy.
 You act through tools: call get_document first to see the current state, then run_commands to change it. Batch several commands in one run_commands call. Report ids returned by add/group so you can refer to them. Use sample_values to verify heights at points when it matters.
-When the user wants geometry the built-in kinds cannot express (patterns, repeated shapes, procedural textures, text on paths), write an extension tool with create_tool: a JSON document {format:"depthcad-tool/1", id, name, version, description, schema, measure, render}. schema maps parameter names to {type: number|int|bool|enum|depth|text|string, label, default, min, max, step, slider, options}. measure is a JS function body (p, lib) returning {w, h} in local px. render is a JS function body (p, r, lib): r = {w, h, height, coverage, scale, nat} is the raster to fill (height and coverage are Float32Array 0..1, local coords are centred at 0,0, scale = pixels per local unit). Prefer lib.each((u, v) => value) which sets each pixel from local coords: return a height, or [height, coverage], or null. lib has sdf.{circle, ellipse, box, ring, segment, polygon, star, union, intersect, subtract, rotate} (signed distance, positive inside), aa(d) for antialiased coverage, profile(kind, d, dmax) for flat|linear|dome|cosine|bevel, noise2/fbm, clamp/mix/smoothstep, add(x, y, h, c) for union-compositing pixels, and canvas()/fromCanvas(ctx, height) for drawing text or paths with Canvas 2D in local units. create_tool test-renders the tool and returns errors; fix them and retry. After creating a tool, add a layer that uses it with run_commands (kind "tool:<id>") and position it.
+When the user wants geometry the built-in kinds cannot express (patterns, repeated shapes, procedural textures, text on paths), write an extension tool with create_tool: a JSON document {format:"depthcad-tool/1", id, name, version, description, schema, measure, render}. schema maps parameter names to {type: number|int|bool|enum|depth|text|string, label, default, min, max, step, slider, options}. measure is a JS function body (p, lib) returning {w, h} in local px. render is a JS function body (p, r, lib): r = {w, h, height, coverage, scale, nat} is the raster to fill (height and coverage are Float32Array 0..1, local coords are centred at 0,0, scale = pixels per local unit). Prefer lib.each((u, v) => value) which sets each pixel from local coords: return a height, or [height, coverage], or null. lib has sdf.{circle, ellipse, box, ring, segment, polygon, star, union, intersect, subtract, rotate} (signed distance, positive inside), aa(d) for antialiased coverage, profile(kind, d, dmax) for flat|linear|dome|scallop|cosine|bevel, noise2/fbm, clamp/mix/smoothstep, add(x, y, h, c) for union-compositing pixels, and canvas()/fromCanvas(ctx, height) for drawing text or paths with Canvas 2D in local units. create_tool test-renders the tool and returns errors; fix them and retry. After creating a tool, add a layer that uses it with run_commands (kind "tool:<id>") and position it.
 Keep replies brief: say what you did and what the user can adjust.`;
 
 const TOOL_DEFS = [

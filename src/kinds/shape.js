@@ -14,7 +14,7 @@ registerKind({
     low: { type: 'depth', label: 'Low value', default: 0 },
     high: { type: 'depth', label: 'High value', default: 1 },
   },
-  hint: 'Profile shapes the height from the edge (Low) to the middle (High). A ring with the Dome profile is a torus; Bevel ramps over a fixed number of pixels.',
+  hint: 'Profile shapes the height from the edge (Low) to the middle (High). Dome is convex (a ring with Dome is a torus), Scallop is the concave inverse (a cove), Bevel ramps over a fixed number of pixels.',
   init(n, doc) { const s = Math.round(Math.min(doc.w, doc.h) * 0.5); n.params.w = s; n.params.h = s; n.params.bevel = Math.round(s * 0.1); },
   measure(n) { return { w: n.params.w, h: n.params.h }; },
   render(n, { cw, ch }) { const p = n.params; return renderShape({ shape: p.shape, w: p.w, h: p.h, inner: p.inner, corner: p.corner, profile: p.profile, bevel: p.bevel, low: p.low, high: p.high }, cw, ch); },

@@ -28,12 +28,13 @@ export function shapeDist(shape, w, h, inner, corner, u, v) {
   return d;
 }
 
-export const PROFILES = { flat: 'Flat', linear: 'Linear (cone)', dome: 'Dome (round)', cosine: 'Smooth (cosine)', bevel: 'Bevel (px)' };
+export const PROFILES = { flat: 'Flat', linear: 'Linear (cone)', dome: 'Dome (round)', scallop: 'Scallop (cove)', cosine: 'Smooth (cosine)', bevel: 'Bevel (px)' };
 
 export function profileT(profile, dist, dmax, bevel) {
   switch (profile) {
     case 'linear': return clamp01(dist / dmax);
     case 'dome': { const k = clamp01(dist / dmax); return Math.sqrt(1 - (1 - k) * (1 - k)); }
+    case 'scallop': { const k = clamp01(dist / dmax); return 1 - Math.sqrt(1 - k * k); } // concave: the inverse of dome
     case 'cosine': { const k = clamp01(dist / dmax); return 0.5 - 0.5 * Math.cos(Math.PI * k); }
     case 'bevel': return clamp01(dist / Math.max(1e-6, bevel));
     default: return 1;
