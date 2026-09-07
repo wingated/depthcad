@@ -24,9 +24,10 @@ function check(cond, msg) { if (!cond) throw new Error('FAIL: ' + msg); console.
     await page.evaluate(() => { depthcad.io.newProject(); depthcad.refreshAll(); });
 
     // image import (8-bit PNG through the built-in decoder)
-    await (await page.$('#fileImg')).uploadFile(path.join(ROOT, 'examples/assets/christus_depth_1024.png')); await sleep(2500);
+    await (await page.$('#fileImg')).uploadFile(path.join(ROOT, 'examples/assets/violin_depth_1024.png')); await sleep(2500);
     let r = await page.evaluate(() => ({ n: depthcad.state.root.children.length, doc: depthcad.state.doc, bits: Object.values(depthcad.state.images)[0].bits }));
-    check(r.n === 1 && r.doc.w === 1024 && r.doc.h === 1024, 'image import sets document size');
+    check(r.n === 1 && r.doc.w === 553 && r.doc.h === 1024 && r.bits === 16, 'image import sets document size (16-bit source)');
+    await page.evaluate(() => { const s = depthcad.state; s.doc.w = 1024; s.doc.h = 1024; s.root.children[0].x = 512; s.root.children[0].y = 512; depthcad.refreshAll(); });
 
     // build a scene: mask via group, ring, cut, text, modifier
     r = await page.evaluate(async () => {
@@ -89,7 +90,7 @@ function check(cond, msg) { if (!cond) throw new Error('FAIL: ' + msg); console.
     check(r.n4 === r.n0 + 1, 'copy/paste');
 
     // v1 project migration
-    await (await page.$('#fileProj')).uploadFile(path.join(here, 'fixtures/v1-medallion.dcad.json')); await sleep(3000);
+    await (await page.$('#fileProj')).uploadFile(path.join(here, 'fixtures/v1-medallion.dcad.json')); await sleep(4000);
     r = await page.evaluate(async () => { const { state } = depthcad; const out = await depthcad.renderFull(); return { n: state.root.children.length, kinds: state.root.children.map(c => c.kind), w: out.w, max: out.height.reduce((m, v) => v > m ? v : m, 0) }; });
     check(r.n === 5 && r.kinds.includes('group') && r.max > 0.5, 'v1 project migrates and renders (' + r.kinds.join(',') + ')');
 

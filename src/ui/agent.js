@@ -171,7 +171,7 @@ export function initAgent() {
   const row2 = el('div', 'row'); row2.append(model, key);
   head.append(row1, row2);
   const log = el('div', 'ailog');
-  const inputRow = el('div', 'aiinput'); const ta = document.createElement('textarea'); ta.rows = 3; ta.placeholder = 'Describe what to add or change… e.g. "put a ring of 12 raised stars around the statue"';
+  const inputRow = el('div', 'aiinput'); const ta = document.createElement('textarea'); ta.rows = 3; ta.placeholder = 'Describe what to add or change… e.g. "put a ring of 12 raised stars around the violin"';
   const send = btn('Send', () => submit(), 'primary'); const stop = btn('Stop', () => { if (abort) abort.abort(); }, ''); stop.disabled = true;
   const clear = btn('New chat', () => { adapter = null; log.innerHTML = ''; }, '');
   const bar = el('div', 'btnrow'); bar.append(send, stop, clear); inputRow.append(ta, bar);

@@ -53,7 +53,7 @@ Making a good engraving depth map usually means combining several pieces of 3D i
 ### Assistant (optional)
 
 * The ✦ button in the lower right opens a chat drawer. Bring your own API key for Anthropic (Claude), OpenAI, or Google; keys are stored only in your browser and sent only to that provider.
-* The assistant reads the document, edits it through the same command API as the UI, samples heights to check its work, and writes new tools and edge profiles when the built-in ones cannot express what you ask for ("a ring of twelve raised stars around the statue", "a bead-and-cove edge on this frame"). Every reply is undoable in one click.
+* The assistant reads the document, edits it through the same command API as the UI, samples heights to check its work, and writes new tools and edge profiles when the built-in ones cannot express what you ask for ("a ring of twelve raised stars around the violin", "a bead-and-cove edge on this frame"). Every reply is undoable in one click.
 
 ### Files
 
@@ -97,12 +97,13 @@ The **?** button in the toolbar shows the same reference inside the app.
 
 | | |
 | --- | --- |
-| ![](examples/christus-medallion.png) | **[christus-medallion](examples/christus-medallion.dcad.json)**: a scanned relief on a flat base plate, clipped by a feathered circular mask (a mask node in a group), with a torus ring and two text captions. |
+| ![](examples/violin-staff.png) | **[violin-staff](examples/violin-staff.dcad.json)**: the project in the screenshot. A violin baked from an STL, a wavy musical staff with notes and a clef written as an extension tool by the assistant, a ring with a custom inner edge profile, and an engraved date. |
+| ![](examples/violin-medallion.png) | **[violin-medallion](examples/violin-medallion.dcad.json)**: the violin bake on a flat base plate, clipped by a feathered circular mask (a mask node in a group), with a torus ring and two text captions. |
 | ![](examples/terrain-coaster.png) | **[terrain-coaster](examples/terrain-coaster.dcad.json)**: a bevelled rounded-rect base, a terrain with a Levels modifier clipped to a circle, a rim, a group with a Curve modifier, a Clamp layer that flattens the peaks, and a label engraved with Cut mode. |
 | ![](examples/shapes-primer.png) | **[shapes-primer](examples/shapes-primer.dcad.json)**: one of everything. Cone, dome and ogee profiles, a frame with a bevel outside and a cove inside, a torus, Clamp and Cut layers, an inverted image with a mask, rotated text. |
-| ![](examples/tool-showcase.png) | **[tool-showcase](examples/tool-showcase.dcad.json)**: the three example tools at work. A hammered noise plate, a fluted ring, a ring of stars and text on an arc around the masked relief. |
+| ![](examples/tool-showcase.png) | **[tool-showcase](examples/tool-showcase.dcad.json)**: the three example tools at work. A hammered noise plate, a fluted ring, a ring of stars and text on an arc around the masked violin. |
 
-The example images live in `examples/assets/`; the example tools are in `examples/tools/` (import them from the Tools menu). The Christus relief is included at 1024 px for size.
+The example images live in `examples/assets/`; the example tools are in `examples/tools/` (import them from the Tools menu). The violin depth map is a 16-bit bake of a violin model, included at 1024 px for size; the shipped project omits the mesh itself to keep the file small, so its layer cannot be re-baked.
 
 ## LightBurn notes
 
@@ -122,12 +123,12 @@ A project is JSON with a node tree:
   "app": "DepthCAD", "version": 2, "name": "medallion",
   "doc": { "w": 1024, "h": 1024, "bg": 0, "unit": "u16", "mmPerPx": 0.1, "depthMm": 2 },
   "root": { "id": "root", "kind": "group", "children": [ /* bottom to top */
-    { "id": "…", "kind": "group", "name": "Christus (masked)", "visible": true, "blend": "max", "modifiers": [], "children": [
+    { "id": "…", "kind": "group", "name": "Violin (masked)", "visible": true, "blend": "max", "modifiers": [], "children": [
       { "kind": "mask", "x": 512, "y": 512, "sx": 1, "sy": 1, "rot": 0, "params": { "shape": "ellipse", "w": 820, "h": 820, "invert": false },
         "modifiers": [ { "kind": "feather", "radius": 6 } ] },
       { "kind": "image", "params": { "imageId": "…", "zeroAlpha": true }, "modifiers": [ { "kind": "levels", "outB": 0.1, "outW": 1 } ], "…": "…" } ] },
     { "kind": "shape", "params": { "shape": "ellipse", "w": 940, "h": 940, "inner": 0.86, "outerProfile": "dome", "outerWidth": 33, "innerProfile": "dome", "innerWidth": 33, "low": 0, "high": 0.78 }, "…": "…" },
-    { "kind": "text", "params": { "text": "HE IS RISEN", "family": "Georgia", "weight": "700", "size": 62, "value": 0.92, "layout": { "kind": "linear" } }, "…": "…" },
+    { "kind": "text", "params": { "text": "CON BRIO", "family": "Georgia", "weight": "700", "size": 62, "value": 0.92, "layout": { "kind": "linear" } }, "…": "…" },
     { "kind": "mesh", "params": { "imageId": "…", "meshId": "…", "bake": { "rot": [0, -90, 0], "scale": 480, "pan": [0, 0], "near": -1.5, "far": 1.5, "w": 1024, "h": 1024 } }, "…": "…" },
     { "kind": "tool:star-ring", "params": { "count": 16, "radius": 400, "size": 34 }, "…": "…" }
   ] },

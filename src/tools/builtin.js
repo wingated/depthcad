@@ -21,6 +21,7 @@ lib.each((u, v) => {
   for (let i = 0; i < n; i++) {
     const a = i / n * Math.PI * 2 + p.spin * Math.PI / 180;
     const cx = Math.cos(a) * p.radius, cy = Math.sin(a) * p.radius;
+    if (Math.hypot(u - cx, v - cy) > p.size * 1.15) continue; // outside this star's bounding circle
     const [lu, lv] = lib.sdf.rotate(u - cx, v - cy, -a * 180 / Math.PI - 90);
     best = Math.max(best, lib.sdf.star(lu, lv, p.size, p.size * p.inner / 100, p.points));
   }

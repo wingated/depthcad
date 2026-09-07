@@ -55,27 +55,31 @@ self.onmessage = e => {
     self.postMessage({ id, height, coverage }, [height.buffer, coverage.buffer]);
   } catch (err) { self.postMessage({ id, error: String(err && err.stack || err) }); }
 };`;
-let worker = null, seq = 0; const pending = new Map();
-const TIMEOUT_MS = 20000;
+// One Worker runs tool jobs one at a time from a queue; a job's timeout starts when it is
+// dispatched, so a slow job does not expire the jobs waiting behind it. A timed-out job
+// terminates the Worker and the queue continues on a fresh one.
+let worker = null, seq = 0, running = null; const queue = [];
+const TIMEOUT_MS = 60000;
 function getWorker() {
   if (worker) return worker;
   try {
     worker = new Worker(URL.createObjectURL(new Blob([WORKER_SRC], { type: 'text/javascript' })));
-    worker.onmessage = e => { const p = pending.get(e.data.id); if (!p) return; pending.delete(e.data.id); clearTimeout(p.timer); if (e.data.error) p.reject(new Error(e.data.error)); else p.resolve(e.data); };
-    worker.onerror = e => { for (const [id, p] of pending) { clearTimeout(p.timer); p.reject(new Error('Tool worker error: ' + (e.message || 'unknown'))); } pending.clear(); };
+    worker.onmessage = e => { const job = running; if (!job || job.id !== e.data.id) return; running = null; clearTimeout(job.timer); if (e.data.error) job.reject(new Error(e.data.error)); else job.resolve(e.data); dispatch(); };
+    worker.onerror = e => { const job = running; running = null; if (worker) { worker.terminate(); worker = null; } if (job) { clearTimeout(job.timer); job.reject(new Error('Tool worker error: ' + (e.message || 'unknown'))); } dispatch(); };
   } catch (e) { worker = null; }
   return worker;
 }
-function killWorker() { if (worker) { worker.terminate(); worker = null; } for (const [, p] of pending) { clearTimeout(p.timer); p.reject(new Error('Tool timed out')); } pending.clear(); }
-
+function dispatch() {
+  if (running || !queue.length) return;
+  const wk = getWorker(); if (!wk) { const job = queue.shift(); runToolSync(job.def, job.params, job.w, job.h, job.nat).then(job.resolveRaster, job.reject); dispatch(); return; }
+  const job = queue.shift(); running = job;
+  job.timer = setTimeout(() => { if (running !== job) return; running = null; if (worker) { worker.terminate(); worker = null; } job.reject(new Error(`Tool "${job.def.name}" timed out after ${TIMEOUT_MS / 1000}s`)); dispatch(); }, TIMEOUT_MS);
+  wk.postMessage({ id: job.id, code: job.def.render, params: job.params, w: job.w, h: job.h, nat: job.nat });
+}
 export function runTool(def, params, w, h, nat) {
-  const wk = getWorker();
-  if (!wk) return runToolSync(def, params, w, h, nat);
   return new Promise((resolve, reject) => {
-    const id = ++seq;
-    const timer = setTimeout(() => { if (pending.has(id)) { pending.delete(id); killWorker(); reject(new Error(`Tool "${def.name}" timed out after ${TIMEOUT_MS / 1000}s`)); } }, TIMEOUT_MS);
-    pending.set(id, { resolve: d => { const r = createRaster(w, h); r.height = d.height; r.coverage = d.coverage; resolve(r); }, reject, timer });
-    wk.postMessage({ id, code: def.render, params, w, h, nat });
+    const job = { id: ++seq, def, params, w, h, nat, reject, resolveRaster: resolve, resolve: d => { const r = createRaster(w, h); r.height = d.height; r.coverage = d.coverage; resolve(r); } };
+    queue.push(job); dispatch();
   });
 }
 // Main-thread fallback (no Worker available) and quick validation renders.

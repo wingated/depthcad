@@ -31,17 +31,17 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     console.log(name, 'json', out.json.length, 'bytes');
   };
 
-  // 1. medallion: base plate, masked scan (feathered), torus ring, captions
-  await fresh(1024, 1024); await importImg(path.join(A, 'christus_depth_1024.png'));
+  // 1. medallion: base plate, masked relief (feathered), torus ring, captions
+  await fresh(1024, 1024); await importImg(path.join(A, 'violin_depth_1024.png'), 1024, 1024);
   await page.evaluate(() => {
-    const { cmd, state } = depthcad; const img = state.root.children[0]; cmd.setNodeProps(img.id, { name: 'Christus (scan)' });
+    const { cmd, state } = depthcad; const img = state.root.children[0]; cmd.setNodeProps(img.id, { name: 'Violin (mesh bake)', sx: 0.78, sy: 0.78 });
     const mask = cmd.addMaskTo(img.id, 'ellipse'); cmd.setParams(mask.id, { w: 820, h: 820 }); cmd.addModifier(mask.id, 'feather'); cmd.setModifier(mask.id, 0, { radius: 6 });
     const plate = cmd.add('shape', { shape: 'ellipse', w: 820, h: 820, inner: 0, outerProfile: 'flat', high: 24 / 255 }, { parentId: 'root', index: 0, name: 'Base plate' });
     cmd.add('shape', { shape: 'ellipse', w: 940, h: 940, inner: 0.86, outerProfile: 'dome', innerProfile: 'dome', outerWidth: 33, innerWidth: 33, high: 200 / 255 }, { parentId: 'root', name: 'Torus ring' });
-    cmd.add('text', { text: 'HE IS RISEN', family: 'Georgia', weight: '700', size: 62, spacing: 6, value: 235 / 255 }, { parentId: 'root', name: 'Caption', node: { y: 512 + 345 } });
-    cmd.add('text', { text: 'Come unto me', family: 'Snell Roundhand', weight: '400', italic: true, size: 58, value: 225 / 255 }, { parentId: 'root', name: 'Script', node: { y: 512 - 380, rot: -4 } });
+    cmd.add('text', { text: 'CON BRIO', family: 'Georgia', weight: '700', size: 62, spacing: 6, value: 235 / 255 }, { parentId: 'root', name: 'Caption', node: { y: 512 + 345 } });
+    cmd.add('text', { text: 'Allegro', family: 'Snell Roundhand', weight: '400', italic: true, size: 58, value: 225 / 255 }, { parentId: 'root', name: 'Script', node: { y: 512 - 380, rot: -4 } });
   });
-  await finish('christus-medallion', 512);
+  await finish('violin-medallion', 512);
   await page.evaluate(() => { const { cmd, state } = depthcad; cmd.select([state.root.children[2].id]); }); await sleep(600);
   await page.screenshot({ path: path.join(OUT, 'screenshot-medallion.png') }); // docs/screenshot.png is a hand-made screenshot
 
@@ -82,20 +82,24 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await finish('shapes-primer', 700);
 
   // 4. tool showcase: ring of stars and arc text around the relief, noise texture plate
-  await fresh(1024, 1024); await importImg(path.join(A, 'christus_depth_1024.png'));
+  await fresh(1024, 1024); await importImg(path.join(A, 'violin_depth_1024.png'), 1024, 1024);
   await page.evaluate(async () => {
-    const { cmd, state } = depthcad; const img = state.root.children[0]; cmd.setNodeProps(img.id, { name: 'Christus (scan)', sx: 0.72, sy: 0.72 });
+    const { cmd, state } = depthcad; const img = state.root.children[0]; cmd.setNodeProps(img.id, { name: 'Violin (mesh bake)', sx: 0.52, sy: 0.52 });
     const mask = cmd.addMaskTo(img.id, 'ellipse'); cmd.setParams(mask.id, { w: 560, h: 560 }); cmd.addModifier(mask.id, 'feather'); cmd.setModifier(mask.id, 0, { radius: 4 });
     const T = depthcad.tools.BUILTIN_TOOLS; const by = id => T.find(t => t.id === id);
     for (const id of ['noise-texture', 'star-ring', 'text-arc']) await depthcad.tools.installTool(by(id), { silent: true });
-    const plate = depthcad.tools.addToolNode(by('noise-texture'), { w: 1000, h: 1000, cell: 40, octaves: 5, low: 0.08, high: 0.22, seed: 3 }); cmd.setNodeProps(plate.id, { name: 'Hammered plate' });
+    const plate = depthcad.tools.addToolNode(by('noise-texture'), { w: 1000, h: 1000, cell: 40, octaves: 5, low: 0.08, high: 0.22, seed: 3 }, { parentId: 'root', index: 0 }); cmd.setNodeProps(plate.id, { name: 'Hammered plate' });
     const pm = cmd.addMaskTo(plate.id, 'ellipse'); cmd.setParams(pm.id, { w: 980, h: 980 });
-    cmd.reorder(depthcad.state.root.children[depthcad.state.root.children.length - 1].id, 'root', 0);
     cmd.add('shape', { shape: 'ellipse', w: 620, h: 620, inner: 0.9, outerProfile: 'fluted', innerProfile: 'dome', outerWidth: 24, innerWidth: 14, high: 0.75 }, { parentId: 'root', name: 'Inner ring' });
-    const stars = depthcad.tools.addToolNode(by('star-ring'), { count: 16, radius: 400, size: 34, inner: 45, profile: 'dome', high: 0.85 }); cmd.setNodeProps(stars.id, { name: 'Ring of stars' });
-    const arc = depthcad.tools.addToolNode(by('text-arc'), { text: 'HE IS RISEN  ·  COME UNTO ME  ·', radius: 455, size: 44, family: 'Georgia', weight: '700', start: -90, spacing: 0.6, value: 0.92 }); cmd.setNodeProps(arc.id, { name: 'Arc text' });
+    const stars = depthcad.tools.addToolNode(by('star-ring'), { count: 16, radius: 400, size: 34, inner: 45, profile: 'dome', high: 0.85 }, { parentId: 'root' }); cmd.setNodeProps(stars.id, { name: 'Ring of stars' });
+    const arc = depthcad.tools.addToolNode(by('text-arc'), { text: 'ALLEGRO MA NON TROPPO  ·  CON BRIO  ·', radius: 455, size: 44, family: 'Georgia', weight: '700', start: -90, spacing: 0.6, value: 0.92 }, { parentId: 'root' }); cmd.setNodeProps(arc.id, { name: 'Arc text' });
     await depthcad.renderFull();
   });
   await finish('tool-showcase', 512);
+
+  // 5. the hand-made violin project: re-save through the app and render its preview
+  await page.evaluate(async (txt) => { await depthcad.io.loadProject(JSON.parse(txt)); depthcad.refreshAll(); depthcad.fitView(); }, fs.readFileSync(path.join(ROOT, 'examples/violin-staff.dcad.json'), 'utf8'));
+  await sleep(1500);
+  await finish('violin-staff', 512);
   await browser.close();
 })().catch(e => { console.error(e); process.exit(1); });

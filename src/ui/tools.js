@@ -22,8 +22,8 @@ export async function installTool(def, { toLibrary = false, silent = false } = {
   clearCaches(); if (!silent) setMsg(`Tool "${def.name}" ready`);
   return kind;
 }
-export function addToolNode(def, params = {}) {
-  const n = cmd.add('tool:' + def.id, params, { name: def.name });
+export function addToolNode(def, params = {}, opts = {}) {
+  const n = cmd.add('tool:' + def.id, params, { name: def.name, ...opts });
   return n;
 }
 export function exportTool(def) { downloadBlob(new Blob([JSON.stringify(def, (k, v) => k.startsWith('_') ? undefined : v, 2)], { type: 'application/json' }), def.id + '.tool.json'); }
