@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(here, '..');
 const A = path.join(ROOT, 'examples/assets');
+const OUT = path.join(here, 'out'); fs.mkdirSync(OUT, { recursive: true });
 const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -42,7 +43,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   });
   await finish('christus-medallion', 512);
   await page.evaluate(() => { const { cmd, state } = depthcad; cmd.select([state.root.children[2].id]); }); await sleep(600);
-  await page.screenshot({ path: path.join(ROOT, 'docs/screenshot.png') });
+  await page.screenshot({ path: path.join(OUT, 'screenshot-medallion.png') }); // docs/screenshot.png is a hand-made screenshot
 
   // 2. terrain coaster: bevelled base, levels + circular mask, rim, clamp, engraved (cut) label
   await fresh(1024, 1024); await importImg(path.join(A, 'terrain.png'), 1024, 1024);
