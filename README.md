@@ -49,7 +49,7 @@ Making a good engraving depth map usually means combining several pieces of 3D i
 **Assistant (optional)**
 
 * The ✦ button in the lower right opens a chat drawer. Bring your own API key for Anthropic, OpenAI, or Google; keys are stored only in your browser and sent only to that provider.
-* The assistant sees the document, edits it through the same command API as the UI, and can write new tools when the built-in kinds cannot express what you ask for ("a ring of twelve raised stars around the statue"). Every reply is undoable in one click.
+* The assistant sees the document, edits it through the same command API as the UI, and can write new tools and edge profiles when the built-in ones cannot express what you ask for ("a ring of twelve raised stars around the statue", "a bead-and-cove edge on this frame"). Every reply is undoable in one click.
 
 **3D view**
 

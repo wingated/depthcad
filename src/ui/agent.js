@@ -7,6 +7,8 @@ import { valueAt, getComposite } from '../app/render.js';
 import { KINDS } from '../engine/kinds.js';
 import { MODIFIERS } from '../engine/modifiers.js';
 import { installTool, addToolNode } from './tools.js';
+import { installProfile } from './profileEditor.js';
+import { BUILTIN_PROFILES, SEGMENT_KINDS } from '../engine/profile.js';
 import { $, el, btn } from './dom.js';
 
 const SETTINGS_KEY = 'depthcad.ai';
@@ -39,11 +41,12 @@ export function documentSummary() {
     kinds: kindSchemas(),
     modifiers: Object.fromEntries(Object.entries(MODIFIERS).map(([k, d]) => [k, Object.keys(d.schema)])),
     tools_in_project: Object.values(state.tools).map(t => ({ kind: 'tool:' + t.id, name: t.name, schema: t.schema })),
+    profiles: { builtin: Object.keys(BUILTIN_PROFILES), custom: Object.values(state.profiles).map(p => ({ id: p.id, name: p.name, points: p.points, segments: p.segments })) },
   };
 }
 
 const SYSTEM = () => `You are the assistant inside DepthCAD, a browser app that builds grayscale depth maps for laser engraving by compositing layers.
-Conventions: depth values are normalized floats 0..1 (0 = deepest/farthest, 1 = highest); the user sees them as ${UNITS[state.doc.unit]}. Coordinates are document pixels, origin top-left, y down; every layer has a centre (x, y), scale (sx, sy), rotation in degrees, a blend mode (max = union, min = clamp, replace, cut = erase below inside, keep = erase below outside), and a modifier stack (levels, curve, clamp, feather, blur, offset). Layers composite bottom to top with per-pixel max. Groups contain layers; a mask node clips the siblings above it inside its group. Shapes and masks store their size in params.w/params.h; images and text use sx/sy. A shape's edge is shaped by outerProfile (an id: flat, linear, dome, scallop, cosine, ogee, ledge, fluted, steps, or a custom profile in the project) over outerWidth px measured inward from the edge; rings/frames (inner > 0) also have innerProfile/innerWidth on the hole edge.
+Conventions: depth values are normalized floats 0..1 (0 = deepest/farthest, 1 = highest); the user sees them as ${UNITS[state.doc.unit]}. Coordinates are document pixels, origin top-left, y down; every layer has a centre (x, y), scale (sx, sy), rotation in degrees, a blend mode (max = union, min = clamp, replace, cut = erase below inside, keep = erase below outside), and a modifier stack (levels, curve, clamp, feather, blur, offset). Layers composite bottom to top with per-pixel max. Groups contain layers; a mask node clips the siblings above it inside its group. Shapes and masks store their size in params.w/params.h; images and text use sx/sy. A shape's edge is shaped by outerProfile (an id: flat, linear, dome, scallop, cosine, ogee, ledge, fluted, steps, or a custom profile in the project) over outerWidth px measured inward from the edge; rings/frames (inner > 0) also have innerProfile/innerWidth on the hole edge. To make a new edge profile (a cross-section such as a bead, a cove-and-bead, a ledge), call create_profile with a document {format:"depthcad-profile/1", id, name, points:[{x,y},...], segments:[{kind},...]}: x runs from 0 (inside of the shape, normally y = 1 = full height) to 1 (the edge, normally y = 0), points must be sorted by x, and there is one segment per pair of points with kind line | dome (convex: flat tangent at its start, vertical at its end) | cove (concave: vertical at its start, flat at its end) | smooth | step (horizontal then a vertical drop at the end) | bezier (with c1 and c2 handle points). Then set outerProfile or innerProfile on the shape to the new id.
 You act through tools: call get_document first to see the current state, then run_commands to change it. Batch several commands in one run_commands call. Report ids returned by add/group so you can refer to them. Use sample_values to verify heights at points when it matters.
 When the user wants geometry the built-in kinds cannot express (patterns, repeated shapes, procedural textures, text on paths), write an extension tool with create_tool: a JSON document {format:"depthcad-tool/1", id, name, version, description, schema, measure, render}. schema maps parameter names to {type: number|int|bool|enum|depth|text|string, label, default, min, max, step, slider, options}. measure is a JS function body (p, lib) returning {w, h} in local px. render is a JS function body (p, r, lib): r = {w, h, height, coverage, scale, nat} is the raster to fill (height and coverage are Float32Array 0..1, local coords are centred at 0,0, scale = pixels per local unit). Prefer lib.each((u, v) => value) which sets each pixel from local coords: return a height, or [height, coverage], or null. lib has sdf.{circle, ellipse, box, ring, segment, polygon, star, union, intersect, subtract, rotate} (signed distance, positive inside), aa(d) for antialiased coverage, profile(kind, d, dmax) for flat|linear|dome|scallop|cosine|bevel, noise2/fbm, clamp/mix/smoothstep, add(x, y, h, c) for union-compositing pixels, and canvas()/fromCanvas(ctx, height) for drawing text or paths with Canvas 2D in local units. create_tool test-renders the tool and returns errors; fix them and retry. After creating a tool, add a layer that uses it with run_commands (kind "tool:<id>") and position it.
 Keep replies brief: say what you did and what the user can adjust.`;
@@ -55,6 +58,7 @@ const TOOL_DEFS = [
     parameters: { type: 'object', properties: { commands: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, args: { type: 'object' } }, required: ['name', 'args'] } } }, required: ['commands'] },
   },
   { name: 'create_tool', description: 'Install an extension tool (see the system prompt for the format). Validates it and test-renders it; returns {ok} or {errors}. Then add a layer with kind "tool:<id>" using run_commands.', parameters: { type: 'object', properties: { tool: { type: 'object' } }, required: ['tool'] } },
+  { name: 'create_profile', description: 'Install a custom edge profile document for shapes (format in the system prompt). Returns {ok, id} or {errors}. Then reference it by id in a shape\'s outerProfile/innerProfile.', parameters: { type: 'object', properties: { profile: { type: 'object' } }, required: ['profile'] } },
   { name: 'sample_values', description: 'Read the composited depth value (0..1) at document points.', parameters: { type: 'object', properties: { points: { type: 'array', items: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' } }, required: ['x', 'y'] } } }, required: ['points'] } },
 ];
 
@@ -90,6 +94,7 @@ async function executeTool(name, args) {
   if (name === 'get_document') return documentSummary();
   if (name === 'run_commands') { const results = []; for (const c of args.commands || []) { try { results.push({ name: c.name, result: runCommand(c) }); } catch (e) { results.push({ name: c.name, error: String(e.message || e) }); } } return { results }; }
   if (name === 'create_tool') { try { await installTool(args.tool, { toLibrary: false, silent: true }); return { ok: true, kind: 'tool:' + args.tool.id, defaults: Object.fromEntries(Object.entries(args.tool.schema).map(([k, s]) => [k, s.default])) }; } catch (e) { return { errors: [String(e.message || e)] }; } }
+  if (name === 'create_profile') { try { const d = args.profile; installProfile(d); return { ok: true, id: d.id, name: d.name }; } catch (e) { return { errors: [String(e.message || e)] }; } }
   if (name === 'sample_values') { return { values: (args.points || []).map(p => { const v = valueAt(p.x, p.y); return { x: p.x, y: p.y, value: v, display: v == null ? null : +depthToDisplay(v).toFixed(2) }; }) }; }
   throw new Error('unknown tool ' + name);
 }

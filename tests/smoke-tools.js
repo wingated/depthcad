@@ -59,6 +59,8 @@ function check(cond, msg) { if (!cond) throw new Error('FAIL: ' + msg); console.
         { text: '', calls: [{ id: 'c2', name: 'run_commands', args: { commands: [{ name: 'add', args: { kind: 'shape', params: { shape: 'ellipse', w: 500, h: 500, profile: 'dome', high: 0.8 }, name: 'Agent dome', x: 512, y: 512 } }, { name: 'addModifier', args: { id: 'LAST', kind: 'feather', settings: { radius: 3 } } }] } }] },
         { text: '', calls: [{ id: 'c3', name: 'create_tool', args: { tool: { format: 'depthcad-tool/1', id: 'agent-bumps', name: 'Bumps', version: 1, description: 'grid of bumps', schema: { n: { type: 'int', default: 4, min: 1, max: 20 }, size: { type: 'number', default: 200, min: 10, max: 2000 } }, measure: 'return {w:p.size,h:p.size}', render: 'lib.each((u,v)=>{const cell=p.size/p.n;const cu=((u+p.size/2)%cell)-cell/2,cv=((v+p.size/2)%cell)-cell/2;const d=lib.sdf.circle(cu,cv,cell*0.4);const c=lib.aa(d);return c>0?[lib.profile("dome",d,cell*0.4),c]:null;});' } } }] },
         { text: '', calls: [{ id: 'c4', name: 'run_commands', args: { commands: [{ name: 'add', args: { kind: 'tool:agent-bumps', params: { n: 5, size: 300 }, name: 'Bumps', x: 200, y: 200 } }] } }, { id: 'c5', name: 'sample_values', args: { points: [{ x: 512, y: 512 }] } }] },
+        { text: '', calls: [{ id: 'c6', name: 'create_profile', args: { profile: { format: 'depthcad-profile/1', id: 'agent-bead', name: 'Bead', points: [{ x: 0, y: 1 }, { x: 0.5, y: 0.5 }, { x: 1, y: 0 }], segments: [{ kind: 'cove' }, { kind: 'dome' }] } } }] },
+        { text: '', calls: [{ id: 'c7', name: 'run_commands', args: { commands: [{ name: 'add', args: { kind: 'shape', params: { shape: 'ellipse', w: 300, h: 300, outerProfile: 'agent-bead', outerWidth: 150, high: 1 }, name: 'Bead disc', x: 800, y: 800 } }] } }] },
         { text: 'Added a dome and a grid of bumps.', calls: [] },
       ];
       const seen = [];
@@ -68,16 +70,17 @@ function check(cond, msg) { if (!cond) throw new Error('FAIL: ' + msg); console.
       const out = await depthcad.renderFull();
       const names = depthcad.state.root.children.map(c => c.name);
       const log = [...document.querySelectorAll('#aiDrawer .aimsg')].map(d => d.className.replace('aimsg ', '') + ': ' + d.textContent.slice(0, 60));
-      return { names, kinds: depthcad.state.root.children.map(c => c.kind), docKeys: Object.keys(seen[0][0]), sample: seen[3] && seen[3][1] && seen[3][1].values[0].value, center: out.height[512 * out.w + 512], log, tool: !!depthcad.state.tools['agent-bumps'] };
+      return { names, kinds: depthcad.state.root.children.map(c => c.kind), docKeys: Object.keys(seen[0][0]), sample: seen[3] && seen[3][1] && seen[3][1].values[0].value, center: out.height[512 * out.w + 512], log, tool: !!depthcad.state.tools['agent-bumps'], profile: !!depthcad.state.profiles['agent-bead'], bead: out.height[800 * out.w + 800 + 75] };
     });
     check(r.names.includes('Agent dome') && r.kinds.includes('tool:agent-bumps') && r.tool, 'agent added a shape, created a tool and added a tool layer');
-    check(r.docKeys.includes('layers_bottom_to_top') && r.docKeys.includes('kinds'), 'get_document returns the summary');
+    check(r.docKeys.includes('layers_bottom_to_top') && r.docKeys.includes('kinds') && r.docKeys.includes('profiles'), 'get_document returns the summary');
+    check(r.profile && r.names.includes('Bead disc') && Math.abs(r.bead - 0.5) < 0.05, `agent created a custom profile and used it (bead mid-band ${(+r.bead).toFixed(3)})`);
     check(r.center > 0.7 && r.sample > 0.7, `dome height read back through sample_values (${(+r.sample).toFixed(3)})`);
     check(r.log.some(l => l.startsWith('ai: Added')) && r.log.some(l => /changes applied/.test(l)), 'chat log shows the reply and the revert control');
     await page.screenshot({ path: path.join(OUT, 'agent.png') });
     // revert
     r = await page.evaluate(async () => { document.querySelector('#aiDrawer .aimsg.sys button').click(); await new Promise(r => setTimeout(r, 300)); return depthcad.state.root.children.map(c => c.name); });
-    check(!r.includes('Agent dome') && !r.includes('Bumps'), 'revert undoes the reply');
+    check(!r.includes('Agent dome') && !r.includes('Bumps') && !r.includes('Bead disc'), 'revert undoes the reply');
     check(errors.length === 0, 'no page errors' + (errors.length ? ': ' + errors.join(' | ') : ''));
     console.log('\nAll tool/agent checks passed.');
   } finally { await browser.close(); }
