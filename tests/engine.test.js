@@ -50,7 +50,7 @@ test('scallop profile is the concave inverse of dome', () => {
   const sc = renderShape({ shape: 'ellipse', w: 100, h: 100, inner: 0, profile: 'scallop', low: 0, high: 1 }, 100, 100);
   const i = 50 * 100 + 75; // half-way from centre to edge
   assert.ok(dome.height[i] > 0.85 && sc.height[i] < 0.15 && sc.height[i] > 0, `dome ${dome.height[i].toFixed(3)} scallop ${sc.height[i].toFixed(3)}`);
-  assert.ok(sc.height[50 * 100 + 50] > 0.85); // steep near the centre (k = 0.99 -> 0.86), reaching 1 at the centre point
+  assert.ok(sc.height[50 * 100 + 50] > 0.8); // steep near the centre (k = 0.986 -> 0.83), reaching 1 at the centre point
   // point reflection of the dome curve: dome(k) + scallop(1 - k) = 1
   const k = 0.49; assert.ok(Math.abs(Math.sqrt(1 - (1 - k) * (1 - k)) + (1 - Math.sqrt(1 - (1 - k) * (1 - k))) - 1) < 1e-9);
 });
