@@ -144,6 +144,8 @@ Copy/paste serializes nodes (with the rasters and images they reference) to the 
 
 ### Caching
 
+Implementation notes (2026-09-07): the first implementation cached only local rasters and re-resampled every layer into document space on every frame, which cost about 80 ms per frame for a handful of layers at a 1024 px preview regardless of what changed. Three additions brought a move down to 12–17 ms and an interactive scale to about 24 ms: (1) each node also caches its document-space raster after modifiers, keyed on everything but its translation, and in preview mode the translation is quantized to whole render pixels so a moved layer is reused with a shifted origin; group composites and mask coverages are cached the same way; (2) resampling has a whole-pixel copy fast path for unrotated, unscaled layers and an incremental affine inner loop otherwise; (3) an interactive mode, entered by canvas drags and panel sliders, renders local rasters at reduced size until the interaction ends. Export never uses the shifted or reduced paths.
+
 Each node caches its local raster keyed by `cacheKey(node)` and the pixel scale, and each group caches its composite keyed by its children's keys. Dragging a layer invalidates only the resample-and-composite step, not the local render. This is the same scheme v1 uses per kind, generalized.
 
 ## 3. Mesh import

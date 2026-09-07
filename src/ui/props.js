@@ -10,6 +10,7 @@ import { toolEditor, exportTool, saveToLibrary } from './tools.js';
 import { profilePicker } from './profileEditor.js';
 import { $, el, btn } from './dom.js';
 import { clamp } from '../engine/util.js';
+import { setInteractive } from '../app/render.js';
 
 let root; const tracked = [];
 export function initProps() { root = $('#props'); }
@@ -33,8 +34,8 @@ function numInput(get, set, opt = {}) {
 function sliderRow(label, get, set, min, max, step) {
   const r = el('div', 'row'); const s = document.createElement('input'); s.type = 'range'; s.min = min; s.max = max; s.step = step; s.value = get();
   const n = numInput(get, set, { min, max, step, after: () => { s.value = get(); } }); n.style.width = '64px';
-  s.addEventListener('input', () => { set(parseFloat(s.value), true); n.value = +(+get()).toFixed(3); });
-  s.addEventListener('change', () => set(parseFloat(s.value), false));
+  s.addEventListener('input', () => { setInteractive(true); set(parseFloat(s.value), true); n.value = +(+get()).toFixed(3); });
+  s.addEventListener('change', () => { setInteractive(false); set(parseFloat(s.value), false); });
   tracked.push([s, get]); r.append(el('label', null, label), s, n); return r;
 }
 function checkRow(label, get, set) { const r = el('div', 'row'); const c = document.createElement('input'); c.type = 'checkbox'; c.checked = !!get(); c.addEventListener('change', () => set(c.checked, false)); const l = el('label', 'wide'); l.append(c, ' ' + label); r.append(l); tracked.push([c, get]); return r; }

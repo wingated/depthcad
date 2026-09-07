@@ -2,7 +2,7 @@
 import { state, findNode, visibleLeaves, selectedNodes, primarySelected, fmtDepth } from '../app/state.js';
 import * as cmd from '../app/commands.js';
 import { commit } from '../app/history.js';
-import { getComposite, onComposite, onFrame, invalidate, valueAt } from '../app/render.js';
+import { getComposite, onComposite, onFrame, invalidate, valueAt, setInteractive } from '../app/render.js';
 import { boxCorners, boxPoint, boxContains, boxAABB, unionAABB, DEG } from '../engine/transform.js';
 import { KINDS } from '../engine/kinds.js';
 import { $ } from './dom.js';
@@ -170,12 +170,12 @@ function onMove(e) {
       break;
     }
     case 'rotate': {
-      const b = drag.box0; let rot = b.rot + (Math.atan2(d.y - b.y, d.x - b.x) - drag.a0) / DEG;
+      setInteractive(true); const b = drag.box0; let rot = b.rot + (Math.atan2(d.y - b.y, d.x - b.x) - drag.a0) / DEG;
       if (e.shiftKey) rot = Math.round(rot / 15) * 15; rot = ((rot % 360) + 540) % 360 - 180;
       cmd.setBox(drag.id, { ...b, rot }, { transient: true }); break;
     }
     case 'scale': {
-      const b = drag.box0, { hx, hy } = drag; const c = Math.cos(b.rot * DEG), s = Math.sin(b.rot * DEG);
+      setInteractive(true); const b = drag.box0, { hx, hy } = drag; const c = Math.cos(b.rot * DEG), s = Math.sin(b.rot * DEG);
       const toLocal = (px, py, ox, oy) => { const dx = px - ox, dy = py - oy; return { x: dx * c + dy * s, y: -dx * s + dy * c }; };
       let nb;
       if (e.altKey) {
@@ -196,5 +196,6 @@ function onMove(e) {
 function endDrag() {
   if (!drag) return; const dk = drag; drag = null;
   if (dk.kind === 'marquee') { if (!dk.moved) cmd.select(dk.base); return; }
+  if (dk.kind === 'rotate' || dk.kind === 'scale') setInteractive(false);
   if (dk.kind === 'move' || dk.kind === 'rotate' || dk.kind === 'scale') commit();
 }

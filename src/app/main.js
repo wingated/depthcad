@@ -3,7 +3,7 @@ import { state, findNode, selectedNodes } from './state.js';
 import * as cmd from './commands.js';
 import { onChange } from './commands.js';
 import { undo, redo, canUndo, canRedo, onHistory, commit } from './history.js';
-import { invalidate, startLoop, pruneCaches, clearCaches } from './render.js';
+import { invalidate, startLoop, pruneCaches, clearCaches, renderPreviewNow, previewCache, setInteractive } from './render.js';
 import { importImageFile, importFontFile, importMeshFile, openProjectFile, saveProject, newProject, autosave, restoreAutosave, registerImage, loadProject, renderFull } from './io.js';
 import { serialize } from './state.js';
 import { encodeGrayPNG } from '../engine/png.js';
@@ -143,6 +143,7 @@ async function pasteFromClipboard() {
 window.depthcad = {
   state, cmd, undo, redo, commit, findNode, serialize, refreshAll, fitView, renderFull,
   io: { importImageFile, importFontFile, importMeshFile, openProjectFile, saveProject, newProject, registerImage, loadProject }, openMeshImport,
+  renderPreviewNow, previewCache, setInteractive,
   tools: { installTool, addToolNode, BUILTIN_TOOLS }, agent: { setAdapterFactory, documentSummary }, profiles: { installProfile, openProfileEditor, BUILTIN_PROFILES, newProfile },
   async encode16() { const out = await renderFull(); return encodeGrayPNG(out.w, out.h, toU16(out.height), 16); },
   async encode8(dither = 'fs') { const out = await renderFull(); return encodeGrayPNG(out.w, out.h, toU8(out.height, out.w, out.h, dither), 8); },

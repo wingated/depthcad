@@ -598,7 +598,7 @@ const { state, findNode, selectedNodes } = __require('./app/state.js');
 const cmd = __require('./app/commands.js');
 const { onChange } = __require('./app/commands.js');
 const { undo, redo, canUndo, canRedo, onHistory, commit } = __require('./app/history.js');
-const { invalidate, startLoop, pruneCaches, clearCaches } = __require('./app/render.js');
+const { invalidate, startLoop, pruneCaches, clearCaches, renderPreviewNow, previewCache, setInteractive } = __require('./app/render.js');
 const { importImageFile, importFontFile, importMeshFile, openProjectFile, saveProject, newProject, autosave, restoreAutosave, registerImage, loadProject, renderFull } = __require('./app/io.js');
 const { serialize } = __require('./app/state.js');
 const { encodeGrayPNG } = __require('./engine/png.js');
@@ -737,6 +737,7 @@ async function pasteFromClipboard() {
 window.depthcad = {
   state, cmd, undo, redo, commit, findNode, serialize, refreshAll, fitView, renderFull,
   io: { importImageFile, importFontFile, importMeshFile, openProjectFile, saveProject, newProject, registerImage, loadProject }, openMeshImport,
+  renderPreviewNow, previewCache, setInteractive,
   tools: { installTool, addToolNode, BUILTIN_TOOLS }, agent: { setAdapterFactory, documentSummary }, profiles: { installProfile, openProfileEditor, BUILTIN_PROFILES, newProfile },
   async encode16() { const out = await renderFull(); return encodeGrayPNG(out.w, out.h, toU16(out.height), 16); },
   async encode8(dither = 'fs') { const out = await renderFull(); return encodeGrayPNG(out.w, out.h, toU8(out.height, out.w, out.h, dither), 8); },
@@ -762,7 +763,9 @@ setAsyncHook((node, err) => { invalidate(); if (err) console.warn('tool error in
 
 const previewCache = new Map();
 const exportCache = new Map();
-let comp = null, compScale = 1, dirty = true;
+let comp = null, compScale = 1, dirty = true, fastMode = false, fastT = null;
+// Interactive mode: during drags local rasters are rendered at reduced size; ends shortly after the last call.
+function setInteractive(on) { if (on) { fastMode = true; clearTimeout(fastT); fastT = setTimeout(() => { fastMode = false; invalidate(); }, 250); } else if (fastMode) { fastMode = false; clearTimeout(fastT); invalidate(); } }
 const frameListeners = new Set(), compListeners = new Set();
 
 function invalidate() { dirty = true; }
@@ -774,7 +777,7 @@ function previewScale() { return Math.min(1, state.previewMax / Math.max(state.d
 
 function renderPreviewNow() {
   dirty = false; compScale = previewScale();
-  try { comp = renderDocument(state, compScale, false, previewCache); }
+  try { comp = renderDocument(state, compScale, false, previewCache, fastMode); }
   catch (e) { console.error(e); }
   for (const fn of compListeners) fn(comp);
 }
@@ -793,7 +796,7 @@ function startLoop() {
   (function tick() { if (dirty) renderPreviewNow(); for (const fn of frameListeners) fn(); requestAnimationFrame(tick); })();
 }
 
-Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get previewCache() { return previewCache; }, get exportCache() { return exportCache; }, get invalidate() { return invalidate; }, get onFrame() { return onFrame; }, get onComposite() { return onComposite; }, get getComposite() { return getComposite; }, get getCompositeScale() { return getCompositeScale; }, get previewScale() { return previewScale; }, get renderPreviewNow() { return renderPreviewNow; }, get valueAt() { return valueAt; }, get pruneCaches() { return pruneCaches; }, get clearCaches() { return clearCaches; }, get startLoop() { return startLoop; } }));
+Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get previewCache() { return previewCache; }, get exportCache() { return exportCache; }, get setInteractive() { return setInteractive; }, get invalidate() { return invalidate; }, get onFrame() { return onFrame; }, get onComposite() { return onComposite; }, get getComposite() { return getComposite; }, get getCompositeScale() { return getCompositeScale; }, get previewScale() { return previewScale; }, get renderPreviewNow() { return renderPreviewNow; }, get valueAt() { return valueAt; }, get pruneCaches() { return pruneCaches; }, get clearCaches() { return clearCaches; }, get startLoop() { return startLoop; } }));
 });
 __define('./app/state.js', function (__exports) {
 // Application state, tree helpers, serialization and v1 migration.
@@ -932,23 +935,32 @@ __define('./engine/composite.js', function (__exports) {
 // ctx = { scale, full, doc, assets, cache, W, H }
 //   scale   render pixels per document pixel (1 for export)
 //   full    true for full-quality sources (export), false for preview sources
-//   cache   Map(node.id -> {key, raster}) of local rasters
+//   cache   Map(node.id -> entry) with per-node caches:
+//             entry.local = {key, raster}          local raster (kind render)
+//             entry.doc   = {key, raster, rx, ry}  document-space raster after modifiers (preview only)
+//             entry.mask  = {key, cov}             full-size coverage of a mask node
+//             entry.group = {key, raster}          composite of a group's children (+ its modifiers)
+// In preview mode a node's translation is quantized to whole render pixels, so a moved layer
+// reuses its document raster with a shifted origin instead of being resampled again.
 const { createRaster, fillRaster, blendInto, applyCoverageMask, flatten } = __require('./engine/raster.js');
 const { resampleToDoc, boxAABB, unionAABB } = __require('./engine/transform.js');
 const { applyModifiers, modifierPad } = __require('./engine/modifiers.js');
 const { KINDS } = __require('./engine/kinds.js');
 const MAXPX = 4200 * 4200;
+const FAST_PX = 360 * 360; // local raster budget while the user is dragging (ctx.fast)
+const MAX_CACHED_DOC_PX = 6 * 1024 * 1024; // larger document rasters are clipped to the page and not shift-cached
 let asyncHook = null;
 function setAsyncHook(fn) { asyncHook = fn; }
 
-function makeContext(state, scale, full, cache) {
+function makeContext(state, scale, full, cache, fast = false) {
   const W = Math.max(1, Math.round(state.doc.w * scale)), H = Math.max(1, Math.round(state.doc.h * scale));
-  return { scale, full, doc: state.doc, assets: state, cache, W, H };
+  return { scale, full, doc: state.doc, assets: state, cache: cache || new Map(), W, H, fast: !!fast && !full };
 }
+function entry(ctx, node) { let e = ctx.cache.get(node.id); if (!e) { e = {}; ctx.cache.set(node.id, e); } return e; }
 
 // Returns {w, h, height: Float32Array} flattened against the document background.
-function renderDocument(state, scale, full, cache) {
-  const ctx = makeContext(state, scale, full, cache);
+function renderDocument(state, scale, full, cache, fast = false) {
+  const ctx = makeContext(state, scale, full, cache, fast);
   const acc = createRaster(ctx.W, ctx.H);
   fillRaster(acc, state.doc.bg, 1);
   compositeChildren(state.root, acc, ctx);
@@ -959,43 +971,80 @@ function compositeChildren(group, acc, ctx) {
   const masks = [];
   for (const child of group.children) {
     if (!child.visible) continue;
-    if (KINDS[child.kind] && KINDS[child.kind].isMask) { const cov = renderMaskCoverage(child, ctx); if (cov) masks.push(cov); continue; }
-    const r = renderNodeDoc(child, ctx); if (!r) continue;
-    for (const m of masks) applyCoverageMask(r, m, ctx.W, ctx.H);
+    if (KINDS[child.kind] && KINDS[child.kind].isMask) { const cov = maskCoverage(child, ctx); if (cov) masks.push(cov); continue; }
+    let r = renderNodeDoc(child, ctx); if (!r) continue;
+    if (masks.length) { r = { w: r.w, h: r.h, origin: r.origin, height: r.height, coverage: r.coverage.slice() }; for (const m of masks) applyCoverageMask(r, m, ctx.W, ctx.H); }
     blendInto(acc, r, child.blend || 'max');
   }
 }
 
+// ---- keys
+function quant(v, scale) { return Math.round(v * scale); }
+function transformKey(node) { return `${node.sx},${node.sy},${node.rot}|${JSON.stringify(node.modifiers)}`; }
+// Key describing a node's document raster including its position (used by parents).
+function nodeStateKey(node, ctx) {
+  if (node.kind === 'group') return 'g[' + node.children.map(c => c.visible ? nodeStateKey(c, ctx) + '/' + c.blend : '-').join(';') + ']' + JSON.stringify(node.modifiers) + '|' + node.id;
+  const kind = KINDS[node.kind]; if (!kind) return '?';
+  const lk = kind.cacheKey ? kind.cacheKey(node, ctx) : JSON.stringify(node.params);
+  return `${node.kind}|${lk}|${transformKey(node)}|${quant(node.x, ctx.scale)},${quant(node.y, ctx.scale)}|${node.id}`;
+}
+
 // Document-space raster of a node (group composite or resampled local raster), modifiers applied.
+// The returned raster must be treated as read-only (it may be cached).
 function renderNodeDoc(node, ctx) {
-  if (node.kind === 'group') {
-    const acc = createRaster(ctx.W, ctx.H);
-    compositeChildren(node, acc, ctx);
-    applyModifiers(acc, node.modifiers, ctx.scale);
-    return acc;
-  }
+  if (node.kind === 'group') return renderGroupDoc(node, ctx);
   const kind = KINDS[node.kind]; if (!kind) return null;
   const nat = measureNode(node, ctx); if (!nat || !(nat.w > 0) || !(nat.h > 0)) return null;
   const local = renderLocal(node, kind, nat, ctx); if (!local) return null;
+  const e = entry(ctx, node);
   const pad = modifierPad(node.modifiers, ctx.scale);
-  const r = resampleToDoc(local, 0, node, nat, ctx.scale, ctx.W, ctx.H, pad); if (!r) return null;
+  const rx = quant(node.x, ctx.scale), ry = quant(node.y, ctx.scale);
+  if (ctx.full) {
+    // export: exact position, clipped to the page, not cached
+    const r = resampleToDoc(local, 0, node, nat, ctx.scale, ctx.W, ctx.H, pad); if (!r) return null;
+    return applyModifiers(r, node.modifiers, ctx.scale);
+  }
+  const box = { x: 0, y: 0, w: nat.w * node.sx, h: nat.h * node.sy, rot: node.rot }; const a = boxAABB(box);
+  const areaPx = (a.x1 - a.x0) * ctx.scale * (a.y1 - a.y0) * ctx.scale;
+  const shiftable = areaPx <= MAX_CACHED_DOC_PX;
+  const key = e.local.key + '|' + transformKey(node) + '|' + ctx.scale + (shiftable ? '' : `|${rx},${ry}`);
+  if (e.doc && e.doc.key === key) {
+    if (!shiftable) return e.doc.raster;
+    const r = e.doc.raster; const dx = rx - e.doc.rx, dy = ry - e.doc.ry;
+    return dx || dy ? { w: r.w, h: r.h, origin: { x: r.origin.x + dx, y: r.origin.y + dy }, height: r.height, coverage: r.coverage } : r;
+  }
+  // render at the quantized position; unclipped when shiftable so a moved copy stays complete
+  const t = { x: rx / ctx.scale, y: ry / ctx.scale, sx: node.sx, sy: node.sy, rot: node.rot };
+  const r = shiftable ? resampleToDoc(local, 0, t, nat, ctx.scale, null, null, pad) : resampleToDoc(local, 0, t, nat, ctx.scale, ctx.W, ctx.H, pad);
+  if (!r) return null;
   applyModifiers(r, node.modifiers, ctx.scale);
+  e.doc = { key, raster: r, rx, ry };
   return r;
 }
 
-function renderMaskCoverage(node, ctx) {
+function renderGroupDoc(node, ctx) {
+  const e = entry(ctx, node);
+  const key = ctx.full ? null : nodeStateKey(node, ctx) + '|' + ctx.scale + '|' + ctx.W + 'x' + ctx.H;
+  if (key && e.group && e.group.key === key) return e.group.raster;
+  const acc = createRaster(ctx.W, ctx.H);
+  compositeChildren(node, acc, ctx);
+  applyModifiers(acc, node.modifiers, ctx.scale);
+  if (key) e.group = { key, raster: acc };
+  return acc;
+}
+
+function maskCoverage(node, ctx) {
+  const e = entry(ctx, node);
+  const key = ctx.full ? null : nodeStateKey(node, ctx) + '|' + ctx.scale + '|' + ctx.W + 'x' + ctx.H + '|' + (node.params.invert ? 1 : 0);
+  if (key && e.mask && e.mask.key === key) return e.mask.cov;
   const r = renderNodeDoc(node, ctx);
   const inv = !!node.params.invert;
   const cov = new Float32Array(ctx.W * ctx.H); if (inv) cov.fill(1);
-  if (!r) return inv ? cov : cov; // no coverage: masks everything (or nothing when inverted)
-  for (let y = 0; y < r.h; y++) {
-    const dy = y + r.origin.y; if (dy < 0 || dy >= ctx.H) continue;
-    for (let x = 0; x < r.w; x++) {
-      const dx = x + r.origin.x; if (dx < 0 || dx >= ctx.W) continue;
-      const c = r.coverage[y * r.w + x];
-      cov[dy * ctx.W + dx] = inv ? 1 - c : c;
-    }
+  if (r) {
+    const y0 = Math.max(0, -r.origin.y), y1 = Math.min(r.h, ctx.H - r.origin.y), x0 = Math.max(0, -r.origin.x), x1 = Math.min(r.w, ctx.W - r.origin.x);
+    for (let y = y0; y < y1; y++) { const row = (y + r.origin.y) * ctx.W + r.origin.x, src = y * r.w; if (inv) for (let x = x0; x < x1; x++) cov[row + x] = 1 - r.coverage[src + x]; else for (let x = x0; x < x1; x++) cov[row + x] = r.coverage[src + x]; }
   }
+  if (key) e.mask = { key, cov };
   return cov;
 }
 
@@ -1004,30 +1053,31 @@ function renderLocal(node, kind, nat, ctx) {
   let cw = Math.ceil(nat.w * ps), ch = Math.ceil(nat.h * ps);
   if (cw * ch > MAXPX) { const f = Math.sqrt(MAXPX / (cw * ch)); cw = Math.floor(cw * f); ch = Math.floor(ch * f); }
   cw = Math.max(1, cw); ch = Math.max(1, ch);
-  const key = (kind.cacheKey ? kind.cacheKey(node, ctx) : JSON.stringify(node.params)) + '|' + cw + 'x' + ch + (ctx.full ? '|f' : '|p');
-  const ent = ctx.cache && ctx.cache.get(node.id);
+  const e = entry(ctx, node); const ent = e.local;
+  const baseKey = (kind.cacheKey ? kind.cacheKey(node, ctx) : JSON.stringify(node.params));
+  let key = baseKey + '|' + cw + 'x' + ch + (ctx.full ? '|f' : '|p');
   if (ent && ent.key === key) return ent.raster;
+  // while dragging, render a reduced local raster if the full one is not already cached
+  if (ctx.fast && !kind.renderAsync && cw * ch > FAST_PX) { const f = Math.sqrt(FAST_PX / (cw * ch)); cw = Math.max(1, Math.floor(cw * f)); ch = Math.max(1, Math.floor(ch * f)); key = baseKey + '|' + cw + 'x' + ch + '|fast'; if (ent && ent.key === key) return ent.raster; }
   if (kind.renderAsync) {
     // asynchronous kinds (extension tools run in a Worker): start the render, show the previous raster meanwhile
-    if (!ctx.cache) return null;
     if (ent && ent.pendingKey === key) return ent.raster || null;
     const promise = kind.renderAsync(node, { cw, ch, full: ctx.full, ctx });
-    ctx.cache.set(node.id, { key: ent ? ent.key : null, raster: ent ? ent.raster : null, pendingKey: key, promise });
-    promise.then(r => { const cur = ctx.cache.get(node.id); if (cur && cur.pendingKey === key) ctx.cache.set(node.id, { key, raster: r }); node._error = null; if (asyncHook) asyncHook(node); },
-      err => { const cur = ctx.cache.get(node.id); if (cur && cur.pendingKey === key) ctx.cache.set(node.id, { key, raster: null }); node._error = String(err && err.message || err); if (asyncHook) asyncHook(node, node._error); });
+    e.local = { key: ent ? ent.key : null, raster: ent ? ent.raster : null, pendingKey: key, promise };
+    promise.then(r => { const cur = e.local; if (cur && cur.pendingKey === key) e.local = { key, raster: r }; node._error = null; if (asyncHook) asyncHook(node); },
+      err => { const cur = e.local; if (cur && cur.pendingKey === key) e.local = { key, raster: null }; node._error = String(err && err.message || err); if (asyncHook) asyncHook(node, node._error); });
     return ent ? ent.raster : null;
   }
   const raster = kind.render(node, { cw, ch, full: ctx.full, ctx });
   if (!raster) return null;
-  if (ctx.cache) ctx.cache.set(node.id, { key, raster });
+  e.local = { key, raster };
   return raster;
 }
 // Wait for every asynchronous kind in the tree to have a raster at this scale, then render.
 async function renderDocumentAsync(state, scale, full, cache) {
-  const ctx = makeContext(state, scale, full, cache);
   for (let pass = 0; pass < 3; pass++) {
     renderDocument(state, scale, full, cache); // kicks off pending renders
-    const waits = []; for (const [, ent] of cache) if (ent.pendingKey && ent.promise) waits.push(ent.promise.catch(() => null));
+    const waits = []; for (const [, e] of cache) if (e.local && e.local.pendingKey && e.local.promise) waits.push(e.local.promise.catch(() => null));
     if (!waits.length) break;
     await Promise.all(waits);
   }
@@ -2083,29 +2133,44 @@ function unionAABB(list) {
 function resampleToDoc(local, ps, t, nat, scale, clipW, clipH, pad = 0) {
   const box = { x: t.x, y: t.y, w: nat.w * t.sx, h: nat.h * t.sy, rot: t.rot };
   const aabb = boxAABB(box);
-  const bx0 = Math.max(0, Math.floor(aabb.x0 * scale - pad)), by0 = Math.max(0, Math.floor(aabb.y0 * scale - pad));
-  const bx1 = Math.min(clipW, Math.ceil(aabb.x1 * scale + pad)), by1 = Math.min(clipH, Math.ceil(aabb.y1 * scale + pad));
+  let bx0 = Math.floor(aabb.x0 * scale - pad), by0 = Math.floor(aabb.y0 * scale - pad);
+  let bx1 = Math.ceil(aabb.x1 * scale + pad), by1 = Math.ceil(aabb.y1 * scale + pad);
+  if (clipW != null) { bx0 = Math.max(0, bx0); by0 = Math.max(0, by0); bx1 = Math.min(clipW, bx1); by1 = Math.min(clipH, by1); }
   if (bx1 <= bx0 || by1 <= by0) return null;
   const out = createRaster(bx1 - bx0, by1 - by0, bx0, by0);
-  const lw = local.w, lh = local.h, lhgt = local.height, lcov = local.coverage;
+  const lw = local.w, lh = local.h, lcov = local.coverage;
   const pm = local._premul || (local._premul = premultiply(local));
+  const oh = out.height, oc = out.coverage, ow = out.w;
+  const kx = lw / nat.w, ky = lh / nat.h;
+  // Fast path: axis-aligned and the local raster already has the target pixel scale -> whole-pixel copy
+  const unit = t.rot === 0 && Math.abs(kx * t.sx - scale) < 1e-9 && Math.abs(ky * t.sy - scale) < 1e-9;
+  const ox = (t.x - nat.w * t.sx / 2) * scale, oy = (t.y - nat.h * t.sy / 2) * scale; // local pixel (0,0) lands here
+  if (unit && Math.abs(ox - Math.round(ox)) < 1e-6 && Math.abs(oy - Math.round(oy)) < 1e-6) {
+    const sx0 = Math.round(ox) - bx0, sy0 = Math.round(oy) - by0; // where local (0,0) sits inside out
+    const lhgt = local.height;
+    for (let ly = 0; ly < lh; ly++) { const y = ly + sy0; if (y < 0 || y >= out.h) continue; const xs = Math.max(0, -sx0), xe = Math.min(lw, ow - sx0); if (xe <= xs) continue; oh.set(lhgt.subarray(ly * lw + xs, ly * lw + xe), y * ow + sx0 + xs); oc.set(lcov.subarray(ly * lw + xs, ly * lw + xe), y * ow + sx0 + xs); }
+    return out;
+  }
+  // General path: inverse-map each output pixel; the mapping is affine so step per pixel
   const c = Math.cos(t.rot * DEG), s = Math.sin(t.rot * DEG);
   const isx = 1 / t.sx, isy = 1 / t.sy;
-  // local unit -> local raster pixel index
-  const kx = lw / nat.w, ky = lh / nat.h;
-  const oh = out.height, oc = out.coverage;
+  const ax = c * isx * kx / scale, ay = -s * isy * ky / scale;   // d(fx)/dx, d(fy)/dx per output pixel
+  const bxs = s * isx * kx / scale, bys = c * isy * ky / scale;  // d(fx)/dy, d(fy)/dy
   for (let y = 0; y < out.h; y++) {
-    const dy = (y + by0 + 0.5) / scale - t.y;
-    for (let x = 0; x < out.w; x++) {
-      const dx = (x + bx0 + 0.5) / scale - t.x;
-      const u = (dx * c + dy * s) * isx, v = (-dx * s + dy * c) * isy;
-      const fx = (u + nat.w / 2) * kx - 0.5, fy = (v + nat.h / 2) * ky - 0.5;
+    const dy = (y + by0 + 0.5) / scale - t.y, dx0 = (bx0 + 0.5) / scale - t.x;
+    let fx = ((dx0 * c + dy * s) * isx + nat.w / 2) * kx - 0.5, fy = ((-dx0 * s + dy * c) * isy + nat.h / 2) * ky - 0.5;
+    const row = y * ow;
+    for (let x = 0; x < ow; x++, fx += ax, fy += ay) {
       if (fx < -1 || fy < -1 || fx > lw || fy > lh) continue;
-      const cov = bilinear(lcov, lw, lh, fx, fy);
+      const x0 = Math.floor(fx), y0 = Math.floor(fy), tx = fx - x0, ty = fy - y0;
+      const in00 = x0 >= 0 && y0 >= 0 && x0 < lw && y0 < lh, in10 = x0 + 1 >= 0 && y0 >= 0 && x0 + 1 < lw && y0 < lh, in01 = x0 >= 0 && y0 + 1 >= 0 && x0 < lw && y0 + 1 < lh, in11 = x0 + 1 >= 0 && y0 + 1 >= 0 && x0 + 1 < lw && y0 + 1 < lh;
+      const i00 = y0 * lw + x0;
+      const c00 = in00 ? lcov[i00] : 0, c10 = in10 ? lcov[i00 + 1] : 0, c01 = in01 ? lcov[i00 + lw] : 0, c11 = in11 ? lcov[i00 + lw + 1] : 0;
+      const cov = (c00 * (1 - tx) + c10 * tx) * (1 - ty) + (c01 * (1 - tx) + c11 * tx) * ty;
       if (cov <= 0) continue;
-      const hp = bilinear(pm, lw, lh, fx, fy);
-      const i = y * out.w + x;
-      oc[i] = cov; oh[i] = hp / cov;
+      const p00 = in00 ? pm[i00] : 0, p10 = in10 ? pm[i00 + 1] : 0, p01 = in01 ? pm[i00 + lw] : 0, p11 = in11 ? pm[i00 + lw + 1] : 0;
+      const hp = (p00 * (1 - tx) + p10 * tx) * (1 - ty) + (p01 * (1 - tx) + p11 * tx) * ty;
+      oc[row + x] = cov; oh[row + x] = hp / cov;
     }
   }
   return out;
@@ -2771,7 +2836,7 @@ __define('./ui/canvas.js', function (__exports) {
 const { state, findNode, visibleLeaves, selectedNodes, primarySelected, fmtDepth } = __require('./app/state.js');
 const cmd = __require('./app/commands.js');
 const { commit } = __require('./app/history.js');
-const { getComposite, onComposite, onFrame, invalidate, valueAt } = __require('./app/render.js');
+const { getComposite, onComposite, onFrame, invalidate, valueAt, setInteractive } = __require('./app/render.js');
 const { boxCorners, boxPoint, boxContains, boxAABB, unionAABB, DEG } = __require('./engine/transform.js');
 const { KINDS } = __require('./engine/kinds.js');
 const { $ } = __require('./ui/dom.js');
@@ -2938,12 +3003,12 @@ function onMove(e) {
       break;
     }
     case 'rotate': {
-      const b = drag.box0; let rot = b.rot + (Math.atan2(d.y - b.y, d.x - b.x) - drag.a0) / DEG;
+      setInteractive(true); const b = drag.box0; let rot = b.rot + (Math.atan2(d.y - b.y, d.x - b.x) - drag.a0) / DEG;
       if (e.shiftKey) rot = Math.round(rot / 15) * 15; rot = ((rot % 360) + 540) % 360 - 180;
       cmd.setBox(drag.id, { ...b, rot }, { transient: true }); break;
     }
     case 'scale': {
-      const b = drag.box0, { hx, hy } = drag; const c = Math.cos(b.rot * DEG), s = Math.sin(b.rot * DEG);
+      setInteractive(true); const b = drag.box0, { hx, hy } = drag; const c = Math.cos(b.rot * DEG), s = Math.sin(b.rot * DEG);
       const toLocal = (px, py, ox, oy) => { const dx = px - ox, dy = py - oy; return { x: dx * c + dy * s, y: -dx * s + dy * c }; };
       let nb;
       if (e.altKey) {
@@ -2964,6 +3029,7 @@ function onMove(e) {
 function endDrag() {
   if (!drag) return; const dk = drag; drag = null;
   if (dk.kind === 'marquee') { if (!dk.moved) cmd.select(dk.base); return; }
+  if (dk.kind === 'rotate' || dk.kind === 'scale') setInteractive(false);
   if (dk.kind === 'move' || dk.kind === 'rotate' || dk.kind === 'scale') commit();
 }
 
@@ -3483,6 +3549,7 @@ const { toolEditor, exportTool, saveToLibrary } = __require('./ui/tools.js');
 const { profilePicker } = __require('./ui/profileEditor.js');
 const { $, el, btn } = __require('./ui/dom.js');
 const { clamp } = __require('./engine/util.js');
+const { setInteractive } = __require('./app/render.js');
 let root; const tracked = [];
 function initProps() { root = $('#props'); }
 function refreshProps() {
@@ -3505,8 +3572,8 @@ function numInput(get, set, opt = {}) {
 function sliderRow(label, get, set, min, max, step) {
   const r = el('div', 'row'); const s = document.createElement('input'); s.type = 'range'; s.min = min; s.max = max; s.step = step; s.value = get();
   const n = numInput(get, set, { min, max, step, after: () => { s.value = get(); } }); n.style.width = '64px';
-  s.addEventListener('input', () => { set(parseFloat(s.value), true); n.value = +(+get()).toFixed(3); });
-  s.addEventListener('change', () => set(parseFloat(s.value), false));
+  s.addEventListener('input', () => { setInteractive(true); set(parseFloat(s.value), true); n.value = +(+get()).toFixed(3); });
+  s.addEventListener('change', () => { setInteractive(false); set(parseFloat(s.value), false); });
   tracked.push([s, get]); r.append(el('label', null, label), s, n); return r;
 }
 function checkRow(label, get, set) { const r = el('div', 'row'); const c = document.createElement('input'); c.type = 'checkbox'; c.checked = !!get(); c.addEventListener('change', () => set(c.checked, false)); const l = el('label', 'wide'); l.append(c, ' ' + label); r.append(l); tracked.push([c, get]); return r; }

@@ -6,7 +6,9 @@ setAsyncHook((node, err) => { invalidate(); if (err) console.warn('tool error in
 
 export const previewCache = new Map();
 export const exportCache = new Map();
-let comp = null, compScale = 1, dirty = true;
+let comp = null, compScale = 1, dirty = true, fastMode = false, fastT = null;
+// Interactive mode: during drags local rasters are rendered at reduced size; ends shortly after the last call.
+export function setInteractive(on) { if (on) { fastMode = true; clearTimeout(fastT); fastT = setTimeout(() => { fastMode = false; invalidate(); }, 250); } else if (fastMode) { fastMode = false; clearTimeout(fastT); invalidate(); } }
 const frameListeners = new Set(), compListeners = new Set();
 
 export function invalidate() { dirty = true; }
@@ -18,7 +20,7 @@ export function previewScale() { return Math.min(1, state.previewMax / Math.max(
 
 export function renderPreviewNow() {
   dirty = false; compScale = previewScale();
-  try { comp = renderDocument(state, compScale, false, previewCache); }
+  try { comp = renderDocument(state, compScale, false, previewCache, fastMode); }
   catch (e) { console.error(e); }
   for (const fn of compListeners) fn(comp);
 }
