@@ -2372,24 +2372,32 @@ function getMeasureCtx() { if (!measureCtx) measureCtx = makeCanvas(1, 1).getCon
 
 TEXT_LAYOUTS.linear = {
   label: 'Linear',
+  // Lines are measured and aligned on their ink bounds (actualBoundingBox), not on the advance
+  // width: the advance includes side bearings and, with letter spacing, a trailing space after the
+  // last glyph, which would leave the visible text off-centre inside its box.
   measure(p, ctx) {
-    applyFont(ctx, p);
+    applyFont(ctx, p); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
     const lines = String(p.text).split('\n');
-    const ms = lines.map(t => ctx.measureText(t.length ? t : ' '));
-    let asc = 0, desc = 0, w = 0;
-    for (const m of ms) {
+    let asc = 0, desc = 0, w = 0; const ink = [];
+    for (const t of lines) {
+      const m = ctx.measureText(t.length ? t : ' ');
       asc = Math.max(asc, m.fontBoundingBoxAscent || m.actualBoundingBoxAscent || p.size * 0.9);
       desc = Math.max(desc, m.fontBoundingBoxDescent || m.actualBoundingBoxDescent || p.size * 0.25);
-      w = Math.max(w, m.width + (m.actualBoundingBoxRight && m.actualBoundingBoxLeft ? Math.max(0, m.actualBoundingBoxRight + m.actualBoundingBoxLeft - m.width) : 0));
+      const hasInk = typeof m.actualBoundingBoxLeft === 'number' && typeof m.actualBoundingBoxRight === 'number' && t.trim().length;
+      const l = hasInk ? m.actualBoundingBoxLeft : 0, r = hasInk ? m.actualBoundingBoxRight : m.width;
+      ink.push({ l, w: Math.max(0, l + r) }); w = Math.max(w, l + r);
     }
-    const pad = p.size * 0.15, lh = p.size * p.lineHeight;
-    return { w: Math.max(1, w + pad * 2), h: Math.max(1, lh * (lines.length - 1) + asc + desc + pad * 2), lines, asc, desc, lh, pad };
+    const pad = Math.max(2, p.size * 0.04), lh = p.size * p.lineHeight;
+    return { w: Math.max(1, w + pad * 2), h: Math.max(1, lh * (lines.length - 1) + asc + desc + pad * 2), lines, ink, asc, desc, lh, pad };
   },
   draw(p, ctx, m) {
-    applyFont(ctx, p); ctx.textBaseline = 'alphabetic'; ctx.textAlign = p.align;
-    const x = p.align === 'left' ? -m.w / 2 + m.pad : p.align === 'right' ? m.w / 2 - m.pad : 0;
+    applyFont(ctx, p); ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
     let y = -m.h / 2 + m.pad + m.asc;
-    for (const line of m.lines) { ctx.fillText(line, x, y); y += m.lh; }
+    m.lines.forEach((line, i) => {
+      const k = m.ink[i]; // draw so the ink (not the advance) sits where the alignment says
+      const x = p.align === 'left' ? -m.w / 2 + m.pad + k.l : p.align === 'right' ? m.w / 2 - m.pad - k.w + k.l : -k.w / 2 + k.l;
+      ctx.fillText(line, x, y); y += m.lh;
+    });
   },
 };
 
