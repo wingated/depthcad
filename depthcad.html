@@ -1024,7 +1024,8 @@ function renderNodeDoc(node, ctx) {
 
 function renderGroupDoc(node, ctx) {
   const e = entry(ctx, node);
-  const key = ctx.full ? null : nodeStateKey(node, ctx) + '|' + ctx.scale + '|' + ctx.W + 'x' + ctx.H;
+  // not cached for export, nor in interactive mode (children may be rendered at reduced detail then)
+  const key = (ctx.full || ctx.fast) ? null : nodeStateKey(node, ctx) + '|' + ctx.scale + '|' + ctx.W + 'x' + ctx.H;
   if (key && e.group && e.group.key === key) return e.group.raster;
   const acc = createRaster(ctx.W, ctx.H);
   compositeChildren(node, acc, ctx);
@@ -1035,7 +1036,7 @@ function renderGroupDoc(node, ctx) {
 
 function maskCoverage(node, ctx) {
   const e = entry(ctx, node);
-  const key = ctx.full ? null : nodeStateKey(node, ctx) + '|' + ctx.scale + '|' + ctx.W + 'x' + ctx.H + '|' + (node.params.invert ? 1 : 0);
+  const key = (ctx.full || ctx.fast) ? null : nodeStateKey(node, ctx) + '|' + ctx.scale + '|' + ctx.W + 'x' + ctx.H + '|' + (node.params.invert ? 1 : 0);
   if (key && e.mask && e.mask.key === key) return e.mask.cov;
   const r = renderNodeDoc(node, ctx);
   const inv = !!node.params.invert;

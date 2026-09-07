@@ -136,3 +136,19 @@ test('compositor: cut and keep against the document background', () => {
   out = renderDocument(state, 1, true, new Map());
   assert.ok(near(out.height[25 * 50 + 25], 0.5)); assert.ok(near(out.height[25 * 50 + 5], 0.1));
 });
+
+test('interactive (reduced-detail) frames never leave stale low-resolution group or mask caches', () => {
+  const big = { w: 4096, h: 4096, bg: 0 };
+  const state = { doc: big, images: {}, fonts: {}, profiles: {}, root: createNode('group', big) };
+  const g = createNode('group', big);
+  const mask = createNode('mask', big); Object.assign(mask.params, { shape: 'ellipse', w: 3600, h: 3600 }); mask.x = 2048; mask.y = 2048;
+  const ring = createNode('shape', big); Object.assign(ring.params, { shape: 'ellipse', w: 3700, h: 3700, inner: 0.86, outerProfile: 'dome', innerProfile: 'dome', outerWidth: 130, innerWidth: 130, high: 0.8 }); ring.x = 2048; ring.y = 2048;
+  g.children.push(mask, ring); state.root.children.push(g);
+  const cache = new Map();
+  renderDocument(state, 0.25, false, cache, true);          // a frame during a slider drag
+  ring.params.innerWidth = 140; renderDocument(state, 0.25, false, cache, true);
+  const after = renderDocument(state, 0.25, false, cache, false);   // release
+  const fresh = renderDocument(state, 0.25, false, new Map(), false);
+  let maxDiff = 0; for (let i = 0; i < after.height.length; i++) maxDiff = Math.max(maxDiff, Math.abs(after.height[i] - fresh.height[i]));
+  assert.ok(maxDiff < 1e-6, 'max diff ' + maxDiff);
+});
