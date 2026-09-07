@@ -7,6 +7,7 @@ import { TEXT_LAYOUTS } from '../kinds/text.js';
 import { fontPicker, listInstalledFonts } from './fontpicker.js';
 import { openMeshImport } from './meshImport.js';
 import { toolEditor, exportTool, saveToLibrary } from './tools.js';
+import { profilePicker } from './profileEditor.js';
 import { $, el, btn } from './dom.js';
 import { clamp } from '../engine/util.js';
 
@@ -59,6 +60,7 @@ function schemaField(key, s, get, set, params) {
     case 'font': { const r = el('div', 'row'); r.append(el('label', null, label), fontPicker(get, set)); const b = el('div', 'btnrow'); b.append(btn('Load font file…', () => $('#fileFont').click()), btn('List installed fonts', listInstalledFonts)); const w = el('div'); w.append(r, b); return w; }
     case 'layout': { const opts = Object.fromEntries(Object.entries(TEXT_LAYOUTS).map(([k, v]) => [k, v.label || k])); return selectRow(label, () => get().kind, v => set({ ...get(), kind: v }), opts); }
     case 'curve': return curveEditor(label, get, set);
+    case 'profile': { const w = el('div'); w.appendChild(el('label', null, label)); w.appendChild(profilePicker(get, (v, t) => set(v, t), tracked)); return w; }
     default: return row(label, numInput(get, set));
   }
 }

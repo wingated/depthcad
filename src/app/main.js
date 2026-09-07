@@ -15,6 +15,8 @@ import { initView3d, view3d } from '../ui/view3d.js';
 import { initDialogs, documentDialog, exportDialog, helpDialog } from '../ui/dialogs.js';
 import { openMeshImport } from '../ui/meshImport.js';
 import { initToolsMenu, loadLibrary, installTool, addToolNode } from '../ui/tools.js';
+import { loadProfileLibrary, installProfile, openProfileEditor } from '../ui/profileEditor.js';
+import { BUILTIN_PROFILES, newProfile } from '../engine/profile.js';
 import { initAgent, setAdapterFactory, documentSummary } from '../ui/agent.js';
 import { BUILTIN_TOOLS } from '../tools/builtin.js';
 import '../kinds/mesh.js';
@@ -141,14 +143,14 @@ async function pasteFromClipboard() {
 window.depthcad = {
   state, cmd, undo, redo, commit, findNode, serialize, refreshAll, fitView, renderFull,
   io: { importImageFile, importFontFile, importMeshFile, openProjectFile, saveProject, newProject, registerImage, loadProject }, openMeshImport,
-  tools: { installTool, addToolNode, BUILTIN_TOOLS }, agent: { setAdapterFactory, documentSummary },
+  tools: { installTool, addToolNode, BUILTIN_TOOLS }, agent: { setAdapterFactory, documentSummary }, profiles: { installProfile, openProfileEditor, BUILTIN_PROFILES, newProfile },
   async encode16() { const out = await renderFull(); return encodeGrayPNG(out.w, out.h, toU16(out.height), 16); },
   async encode8(dither = 'fs') { const out = await renderFull(); return encodeGrayPNG(out.w, out.h, toU8(out.height, out.w, out.h, dither), 8); },
   toBase64(bytes) { let s = ''; for (let i = 0; i < bytes.length; i += 8192) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192)); return btoa(s); },
 };
 
 (async () => {
-  initCanvas(); initTree(); initProps(); initView3d(); initDialogs(); wire(); initToolsMenu(); await loadLibrary(); window.depthcad.agent.ui = initAgent();
+  initCanvas(); initTree(); initProps(); initView3d(); initDialogs(); wire(); initToolsMenu(); await loadLibrary(); await loadProfileLibrary(); window.depthcad.agent.ui = initAgent();
   let restored = false;
   try { restored = await restoreAutosave(); if (restored) setMsg('Restored autosaved project'); } catch (e) { console.warn('autosave restore failed', e); }
   if (!restored) newProject();

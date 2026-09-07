@@ -25,7 +25,8 @@ Making a good engraving depth map usually means combining several pieces of 3D i
 **Layers**
 
 * **Image layers**: import 8- or 16-bit PNG (or JPEG) depth maps; drag and drop works. The PNG codec is built in, so 16-bit data is never squashed to 8 bits by the browser.
-* **Shape layers**: rectangles (optional corner radius) and ellipses, with an *inner* ratio to make rings and frames. Height profiles: flat, linear (cone), dome (a ring with the dome profile is a torus), scallop (the concave inverse of dome, a cove), cosine, and bevel (a ramp of a fixed number of pixels). Each shape has a low and high value.
+* **Shape layers**: rectangles (optional corner radius) and ellipses, with an *inner* ratio to make rings and frames. The edge is shaped by an **edge profile** over an **edge width** measured inward from the edge; rings and frames have a second profile and width on the inner edge. Built-in profiles: flat, linear (bevel), dome, scallop (cove), cosine, plus ogee, ledge, fluted and stepped examples. Each shape has a low and high value.
+* **Profile editor**: build your own edge profiles from segments (line, dome, cove, smooth, step, bezier) on a small workspace with draggable points and handles. Profiles are named, saved in the project and in your library, and exported or imported as `.profile.json` files.
 * **Text layers**: any installed font, or a loaded `.ttf`/`.otf`/`.woff` file that is embedded in the project. Weight, italic, size, line height, letter spacing, alignment. The font menu previews every family in its own face.
 * **Mesh layers**: import an STL or OBJ and take an orthographic depth "screenshot" of it. The import dialog shows the depth result live next to an orbitable 3D view with the bake box and the near/far clipping planes; rotate with view-from and 90° buttons, numeric angles, or by dragging the depth image; set the clipping range on a depth histogram, by dragging the planes, or with presets (farthest geometry, farthest visible, nearest visible); choose the resolution. The bake is 16-bit with supersampled edges, and the layer can be re-baked later.
 * **Tool layers**: parametric generators defined as small JSON documents (a parameter schema plus a JavaScript render function) that run in a Worker. Three ship as examples: a ring of stars, a noise texture, and text on an arc. Tools you import or write live in "My tools"; the ones a project uses are saved inside it.
@@ -131,6 +132,18 @@ A project is JSON with a node tree:
 ```
 
 Every node has `x`/`y` (centre, document pixels), `sx`/`sy` (scale of the natural size: image pixels or measured text box), `rot`, `lockAspect`, `blend`, `modifiers`, and kind-specific `params`. Shapes and masks store their size in `params.w`/`params.h`. Depth values are normalized floats in 0–1. Version 1 files (flat layer list, 0–255 values) are migrated on load.
+
+## Profile format
+
+An edge profile is a curve on a 0–1 workspace: x = 0 is the inside end of the profile band (normally full height), x = 1 is the edge (normally zero). Points are joined by segments:
+
+```jsonc
+{ "format": "depthcad-profile/1", "id": "ogee", "name": "Ogee",
+  "points":   [ { "x": 0, "y": 1 }, { "x": 0.5, "y": 0.5 }, { "x": 1, "y": 0 } ],
+  "segments": [ { "kind": "dome" }, { "kind": "cove" } ] }        // kinds: line, dome, cove, smooth, step, bezier (with c1, c2 handles)
+```
+
+A shape evaluates the profile at x = 1 − distance / width for its outer edge and, for rings and frames, its inner edge; where both bands overlap the lower height wins.
 
 ## Tool format
 

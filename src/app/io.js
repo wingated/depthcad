@@ -85,6 +85,7 @@ export async function loadProject(p) {
   for (const [id, m] of Object.entries(p.meshes || {})) { try { await registerMesh(m.name, dataURLToBytes(m.dataURL).buffer, id, m.dataURL); } catch (e) { console.warn('mesh failed', id, e); } }
   for (const [id, f] of Object.entries(p.fonts || {})) { try { await registerFont(f.name, f.dataURL, id); } catch (e) { console.warn('font failed', f.name, e); } }
   for (const [id, t] of Object.entries(p.tools || {})) { try { registerTool(t); state.tools[t.id || id] = t; } catch (e) { console.warn('tool failed', id, e); } }
+  for (const [id, pr] of Object.entries(p.profiles || {})) state.profiles[pr.id || id] = pr;
   state.root = normalizeNode(p.root); state.root.id = 'root';
   state.name = p.name || 'untitled'; state.sel = [];
   clearCaches(); resetHistory();

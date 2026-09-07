@@ -6,7 +6,7 @@
   "scripts": {
     "build": "node build.js",
     "test": "npm run test:unit && npm run test:smoke",
-    "test:unit": "node --test tests/engine.test.js tests/mesh.test.js tests/toolkit.test.js",
+    "test:unit": "node --test tests/engine.test.js tests/mesh.test.js tests/toolkit.test.js tests/profile.test.js",
     "test:smoke": "node tests/smoke.js && node tests/smoke-mesh.js && node tests/smoke-tools.js",
     "examples": "node tests/gen-examples.js"
   },

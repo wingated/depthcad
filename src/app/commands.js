@@ -31,7 +31,7 @@ export function selectAll() { select(state.root.children.map(c => c.id)); }
 
 // ---- structure
 export function add(kind, params = {}, opts = {}) {
-  const n = newNode(kind); Object.assign(n.params, params);
+  const n = newNode(kind); const def = KINDS[kind]; const incoming = { ...params }; if (def && def.migrate) def.migrate(incoming); Object.assign(n.params, incoming);
   if (opts.name) n.name = opts.name;
   if (opts.node) Object.assign(n, opts.node);
   const parent = (opts.parentId && findNode(opts.parentId)) || currentContainer();

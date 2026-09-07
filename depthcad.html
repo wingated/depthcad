@@ -100,6 +100,9 @@ canvas.curve{display:block;width:260px;height:160px;border:1px solid var(--borde
 #modal .box{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px 20px;min-width:340px;max-width:560px;max-height:90vh;overflow-y:auto}
 #modal h3{margin:0 0 10px}
 #modal .box.wide{max-width:96vw;width:900px}
+.profwrap{display:flex;gap:14px;align-items:flex-start}
+.profcv{display:block;width:100%;border:1px solid var(--border);border-radius:4px;touch-action:none;cursor:crosshair}
+.profwrap .btnrow button.primary{font-weight:600}
 #toolsMenu{position:fixed;z-index:30;background:var(--panel2);border:1px solid var(--border);border-radius:6px;min-width:240px;max-width:320px;box-shadow:0 8px 24px rgba(0,0,0,.55);display:none;padding:4px 0}
 #toolsMenu.on{display:block}
 #toolsMenu .thdr{padding:6px 10px 2px;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
@@ -271,7 +274,7 @@ function selectAll() { select(state.root.children.map(c => c.id)); }
 
 // ---- structure
 function add(kind, params = {}, opts = {}) {
-  const n = newNode(kind); Object.assign(n.params, params);
+  const n = newNode(kind); const def = KINDS[kind]; const incoming = { ...params }; if (def && def.migrate) def.migrate(incoming); Object.assign(n.params, incoming);
   if (opts.name) n.name = opts.name;
   if (opts.node) Object.assign(n, opts.node);
   const parent = (opts.parentId && findNode(opts.parentId)) || currentContainer();
@@ -553,6 +556,7 @@ async function loadProject(p) {
   for (const [id, m] of Object.entries(p.meshes || {})) { try { await registerMesh(m.name, dataURLToBytes(m.dataURL).buffer, id, m.dataURL); } catch (e) { console.warn('mesh failed', id, e); } }
   for (const [id, f] of Object.entries(p.fonts || {})) { try { await registerFont(f.name, f.dataURL, id); } catch (e) { console.warn('font failed', f.name, e); } }
   for (const [id, t] of Object.entries(p.tools || {})) { try { registerTool(t); state.tools[t.id || id] = t; } catch (e) { console.warn('tool failed', id, e); } }
+  for (const [id, pr] of Object.entries(p.profiles || {})) state.profiles[pr.id || id] = pr;
   state.root = normalizeNode(p.root); state.root.id = 'root';
   state.name = p.name || 'untitled'; state.sel = [];
   clearCaches(); resetHistory();
@@ -606,6 +610,8 @@ const { initView3d, view3d } = __require('./ui/view3d.js');
 const { initDialogs, documentDialog, exportDialog, helpDialog } = __require('./ui/dialogs.js');
 const { openMeshImport } = __require('./ui/meshImport.js');
 const { initToolsMenu, loadLibrary, installTool, addToolNode } = __require('./ui/tools.js');
+const { loadProfileLibrary, installProfile, openProfileEditor } = __require('./ui/profileEditor.js');
+const { BUILTIN_PROFILES, newProfile } = __require('./engine/profile.js');
 const { initAgent, setAdapterFactory, documentSummary } = __require('./ui/agent.js');
 const { BUILTIN_TOOLS } = __require('./tools/builtin.js');
 __require('./kinds/mesh.js');
@@ -731,14 +737,14 @@ async function pasteFromClipboard() {
 window.depthcad = {
   state, cmd, undo, redo, commit, findNode, serialize, refreshAll, fitView, renderFull,
   io: { importImageFile, importFontFile, importMeshFile, openProjectFile, saveProject, newProject, registerImage, loadProject }, openMeshImport,
-  tools: { installTool, addToolNode, BUILTIN_TOOLS }, agent: { setAdapterFactory, documentSummary },
+  tools: { installTool, addToolNode, BUILTIN_TOOLS }, agent: { setAdapterFactory, documentSummary }, profiles: { installProfile, openProfileEditor, BUILTIN_PROFILES, newProfile },
   async encode16() { const out = await renderFull(); return encodeGrayPNG(out.w, out.h, toU16(out.height), 16); },
   async encode8(dither = 'fs') { const out = await renderFull(); return encodeGrayPNG(out.w, out.h, toU8(out.height, out.w, out.h, dither), 8); },
   toBase64(bytes) { let s = ''; for (let i = 0; i < bytes.length; i += 8192) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192)); return btoa(s); },
 };
 
 (async () => {
-  initCanvas(); initTree(); initProps(); initView3d(); initDialogs(); wire(); initToolsMenu(); await loadLibrary(); window.depthcad.agent.ui = initAgent();
+  initCanvas(); initTree(); initProps(); initView3d(); initDialogs(); wire(); initToolsMenu(); await loadLibrary(); await loadProfileLibrary(); window.depthcad.agent.ui = initAgent();
   let restored = false;
   try { restored = await restoreAutosave(); if (restored) setMsg('Restored autosaved project'); } catch (e) { console.warn('autosave restore failed', e); }
   if (!restored) newProject();
@@ -804,6 +810,7 @@ const state = {
   fonts: {},    // id -> {name, dataURL}
   meshes: {},   // id -> {name, positions, triangles, bounds, dataURL?}
   tools: {},    // id -> tool definition (embedded in the project; see kinds/tool.js)
+  profiles: {}, // id -> custom edge profile document (engine/profile.js)
   sel: [],      // selected node ids
   name: 'untitled',
   view: { x: 0, y: 0, zoom: 1 },
@@ -814,7 +821,7 @@ const state = {
 function resetDocument(doc) {
   state.doc = Object.assign({ w: 1024, h: 1024, bg: 0, unit: 'u16', mmPerPx: 0.1, depthMm: 2 }, doc || {});
   state.root = { id: 'root', kind: 'group', name: 'Document', visible: true, locked: false, x: 0, y: 0, sx: 1, sy: 1, rot: 0, lockAspect: false, blend: 'max', modifiers: [], params: {}, children: [] };
-  state.images = {}; state.fonts = {}; state.meshes = {}; state.tools = {}; state.sel = []; state.name = 'untitled';
+  state.images = {}; state.fonts = {}; state.meshes = {}; state.tools = {}; state.profiles = {}; state.sel = []; state.name = 'untitled';
 }
 resetDocument();
 
@@ -842,6 +849,7 @@ function newNode(kind) { return createNode(kind, state.doc); }
 const stripPrivate = (k, v) => (typeof k === 'string' && k.startsWith('_')) ? undefined : v;
 function serializeTree() { return JSON.parse(JSON.stringify(state.root, stripPrivate)); }
 function usedImageIds() { const s = new Set(); walk(state.root, n => { if ((n.kind === 'image' || n.kind === 'mesh') && n.params.imageId) s.add(n.params.imageId); }); return s; }
+function usedProfileIds() { const s = new Set(); walk(state.root, n => { if (n.kind === 'shape') { s.add(n.params.outerProfile); if (n.params.inner > 0) s.add(n.params.innerProfile); } }); return s; }
 function usedToolIds() { const s = new Set(); walk(state.root, n => { if (n.kind.startsWith('tool:')) s.add(n.kind.slice(5)); }); return s; }
 function usedMeshIds() { const s = new Set(); walk(state.root, n => { if (n.kind === 'mesh' && n.params.meshId && n.params.embed !== false) s.add(n.params.meshId); }); return s; }
 
@@ -852,14 +860,17 @@ function serialize() {
   for (const [id, m] of Object.entries(state.meshes)) if (usedM.has(id) && m.dataURL) meshes[id] = { name: m.name, dataURL: m.dataURL };
   const usedT = usedToolIds(); const toolsOut = {};
   for (const [id, t] of Object.entries(state.tools)) if (usedT.has(id)) toolsOut[id] = JSON.parse(JSON.stringify(t, (k, v) => k.startsWith('_') ? undefined : v));
-  return { app: 'DepthCAD', version: FORMAT_VERSION, name: state.name, doc: deepClone(state.doc), root: serializeTree(), images, fonts: deepClone(state.fonts), meshes, tools: toolsOut };
+  const usedP = usedProfileIds(); const profiles = {};
+  for (const [id, pr] of Object.entries(state.profiles)) if (usedP.has(id)) profiles[id] = JSON.parse(JSON.stringify(pr, (k, v) => k.startsWith('_') ? undefined : v));
+  return { app: 'DepthCAD', version: FORMAT_VERSION, name: state.name, doc: deepClone(state.doc), root: serializeTree(), images, fonts: deepClone(state.fonts), meshes, tools: toolsOut, profiles };
 }
 
 // Normalize a loaded node: fill defaults for missing params/modifiers, drop unknown kinds.
 function normalizeNode(n) {
   const def = KINDS[n.kind]; if (!def) return null;
   const base = createNode(n.kind, state.doc);
-  const out = Object.assign(base, n, { params: Object.assign(schemaDefaults(def.schema), n.params || {}) });
+  const raw = { ...(n.params || {}) }; if (def.migrate) def.migrate(raw);
+  const out = Object.assign(base, n, { params: Object.assign(schemaDefaults(def.schema), raw) });
   out.modifiers = (n.modifiers || []).map(m => Object.assign(createModifier(m.kind), m));
   if (n.kind === 'group') out.children = (n.children || []).map(normalizeNode).filter(Boolean);
   else delete out.children;
@@ -913,7 +924,7 @@ function depthStep(doc = state.doc) { return doc.unit === 'mm' ? 0.01 : doc.unit
 function depthDecimals(doc = state.doc) { return doc.unit === 'mm' ? 2 : doc.unit === 'percent' ? 1 : 0; }
 function fmtDepth(v, doc = state.doc) { return depthToDisplay(v, doc).toFixed(depthDecimals(doc)); }
 
-Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get FORMAT_VERSION() { return FORMAT_VERSION; }, get state() { return state; }, get resetDocument() { return resetDocument; }, get walk() { return walk; }, get findNode() { return findNode; }, get parentOf() { return parentOf; }, get allNodes() { return allNodes; }, get visibleLeaves() { return visibleLeaves; }, get isAncestor() { return isAncestor; }, get selectedNodes() { return selectedNodes; }, get primarySelected() { return primarySelected; }, get newNode() { return newNode; }, get serializeTree() { return serializeTree; }, get usedImageIds() { return usedImageIds; }, get usedToolIds() { return usedToolIds; }, get usedMeshIds() { return usedMeshIds; }, get serialize() { return serialize; }, get normalizeNode() { return normalizeNode; }, get migrateV1() { return migrateV1; }, get UNITS() { return UNITS; }, get depthToDisplay() { return depthToDisplay; }, get displayToDepth() { return displayToDepth; }, get depthStep() { return depthStep; }, get depthDecimals() { return depthDecimals; }, get fmtDepth() { return fmtDepth; } }));
+Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get FORMAT_VERSION() { return FORMAT_VERSION; }, get state() { return state; }, get resetDocument() { return resetDocument; }, get walk() { return walk; }, get findNode() { return findNode; }, get parentOf() { return parentOf; }, get allNodes() { return allNodes; }, get visibleLeaves() { return visibleLeaves; }, get isAncestor() { return isAncestor; }, get selectedNodes() { return selectedNodes; }, get primarySelected() { return primarySelected; }, get newNode() { return newNode; }, get serializeTree() { return serializeTree; }, get usedImageIds() { return usedImageIds; }, get usedProfileIds() { return usedProfileIds; }, get usedToolIds() { return usedToolIds; }, get usedMeshIds() { return usedMeshIds; }, get serialize() { return serialize; }, get normalizeNode() { return normalizeNode; }, get migrateV1() { return migrateV1; }, get UNITS() { return UNITS; }, get depthToDisplay() { return depthToDisplay; }, get displayToDepth() { return displayToDepth; }, get depthStep() { return depthStep; }, get depthDecimals() { return depthDecimals; }, get fmtDepth() { return fmtDepth; } }));
 });
 __define('./engine/composite.js', function (__exports) {
 // Tree compositor. Renders a node tree into a document-space raster.
@@ -1645,6 +1656,100 @@ async function deflate(raw) {
 
 Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get decodePNG() { return decodePNG; }, get encodeGrayPNG() { return encodeGrayPNG; }, get crc32() { return crc32; } }));
 });
+__define('./engine/profile.js', function (__exports) {
+// Edge profiles: a function from position across a profile band to height factor.
+//
+// A profile document describes a curve on a 0..1 workspace: x = 0 is the inside end of the
+// band (normally full height, y = 1), x = 1 is the edge (normally y = 0). It is a chain of
+// points joined by segments of kind line | dome | cove | smooth | step | bezier. The engine
+// compiles it into a lookup table; shapes evaluate it with x = 1 - dist / width.
+const { clamp01 } = __require('./engine/util.js');
+const PROFILE_FORMAT = 'depthcad-profile/1';
+const SEGMENT_KINDS = { line: 'Line', dome: 'Dome (convex)', cove: 'Cove (concave)', smooth: 'Smooth (S-curve)', step: 'Step', bezier: 'Bezier' };
+
+const two = (kind) => ({ points: [{ x: 0, y: 1 }, { x: 1, y: 0 }], segments: [{ kind }] });
+const BUILTIN_PROFILES = {
+  flat: { format: PROFILE_FORMAT, id: 'flat', name: 'Flat', builtin: true, ...two('step') },
+  linear: { format: PROFILE_FORMAT, id: 'linear', name: 'Linear (bevel)', builtin: true, ...two('line') },
+  dome: { format: PROFILE_FORMAT, id: 'dome', name: 'Dome (round)', builtin: true, ...two('dome') },
+  scallop: { format: PROFILE_FORMAT, id: 'scallop', name: 'Scallop (cove)', builtin: true, ...two('cove') },
+  cosine: { format: PROFILE_FORMAT, id: 'cosine', name: 'Smooth (cosine)', builtin: true, ...two('smooth') },
+  ogee: { format: PROFILE_FORMAT, id: 'ogee', name: 'Ogee', builtin: true, example: true, points: [{ x: 0, y: 1 }, { x: 0.5, y: 0.5 }, { x: 1, y: 0 }], segments: [{ kind: 'dome' }, { kind: 'cove' }] },
+  ledge: { format: PROFILE_FORMAT, id: 'ledge', name: 'Ledge', builtin: true, example: true, points: [{ x: 0, y: 1 }, { x: 0.45, y: 1 }, { x: 0.55, y: 0.5 }, { x: 1, y: 0.5 }], segments: [{ kind: 'line' }, { kind: 'dome' }, { kind: 'step' }] },
+  fluted: { format: PROFILE_FORMAT, id: 'fluted', name: 'Fluted', builtin: true, example: true, points: [{ x: 0, y: 1 }, { x: 0.33, y: 0.6 }, { x: 0.66, y: 0.3 }, { x: 1, y: 0 }], segments: [{ kind: 'cove' }, { kind: 'cove' }, { kind: 'cove' }] },
+  steps: { format: PROFILE_FORMAT, id: 'steps', name: 'Stepped', builtin: true, example: true, points: [{ x: 0, y: 1 }, { x: 0.33, y: 0.66 }, { x: 0.66, y: 0.33 }, { x: 1, y: 0 }], segments: [{ kind: 'step' }, { kind: 'step' }, { kind: 'step' }] },
+};
+
+function newProfile(name = 'My profile', from = null) {
+  const src = from || BUILTIN_PROFILES.dome;
+  return { format: PROFILE_FORMAT, id: 'p' + Math.random().toString(36).slice(2, 8), name, points: src.points.map(p => ({ ...p })), segments: src.segments.map(s => ({ ...s, ...(s.c1 ? { c1: { ...s.c1 } } : {}), ...(s.c2 ? { c2: { ...s.c2 } } : {}) })) };
+}
+
+function validateProfile(doc) {
+  const errors = [];
+  if (!doc || typeof doc !== 'object') return ['Profile must be an object'];
+  if (doc.format !== PROFILE_FORMAT) errors.push(`format must be "${PROFILE_FORMAT}"`);
+  if (!doc.id) errors.push('id is required'); if (!doc.name) errors.push('name is required');
+  if (!Array.isArray(doc.points) || doc.points.length < 2) errors.push('points must have at least 2 entries');
+  else { for (const p of doc.points) if (typeof p.x !== 'number' || typeof p.y !== 'number') errors.push('points must be {x, y} numbers'); for (let i = 1; i < doc.points.length; i++) if (doc.points[i].x < doc.points[i - 1].x - 1e-9) errors.push('points must not go backwards in x'); }
+  if (!Array.isArray(doc.segments) || (doc.points && doc.segments.length !== doc.points.length - 1)) errors.push('segments must have one entry per pair of points');
+  else for (const s of doc.segments) if (!SEGMENT_KINDS[s.kind]) errors.push('unknown segment kind ' + s.kind);
+  return errors;
+}
+
+// Default bezier handles for a segment (a third of the way along the chord).
+function defaultHandles(p0, p1) { return { c1: { x: p0.x + (p1.x - p0.x) / 3, y: p0.y }, c2: { x: p1.x - (p1.x - p0.x) / 3, y: p1.y } }; }
+
+// Sample one segment as a list of {x, y} from p0 to p1 (inclusive).
+function sampleSegment(kind, p0, p1, seg, n = 48) {
+  const s = sampleSegmentRaw(kind, p0, p1, seg, n);
+  s[0] = { x: p0.x, y: p0.y }; s[s.length - 1] = { x: p1.x, y: p1.y }; // exact endpoints
+  return s;
+}
+function sampleSegmentRaw(kind, p0, p1, seg, n) {
+  const out = []; const dx = p1.x - p0.x, dy = p1.y - p0.y;
+  switch (kind) {
+    case 'step': return [{ x: p0.x, y: p0.y }, { x: p1.x, y: p0.y }, { x: p1.x, y: p1.y }];
+    case 'line': return [{ x: p0.x, y: p0.y }, { x: p1.x, y: p1.y }];
+    case 'dome': for (let i = 0; i <= n; i++) { const t = i / n * Math.PI / 2; out.push({ x: p0.x + dx * Math.sin(t), y: p0.y + dy * (1 - Math.cos(t)) }); } return out;
+    case 'cove': for (let i = 0; i <= n; i++) { const t = i / n * Math.PI / 2; out.push({ x: p0.x + dx * (1 - Math.cos(t)), y: p0.y + dy * Math.sin(t) }); } return out;
+    case 'smooth': for (let i = 0; i <= n; i++) { const t = i / n; out.push({ x: p0.x + dx * t, y: p0.y + dy * (0.5 - 0.5 * Math.cos(Math.PI * t)) }); } return out;
+    case 'bezier': {
+      const h = seg && seg.c1 && seg.c2 ? seg : defaultHandles(p0, p1); const { c1, c2 } = h;
+      for (let i = 0; i <= n; i++) { const t = i / n, u = 1 - t; out.push({ x: u * u * u * p0.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * p1.x, y: u * u * u * p0.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * p1.y }); }
+      return out;
+    }
+    default: return [{ x: p0.x, y: p0.y }, { x: p1.x, y: p1.y }];
+  }
+}
+function sampleProfile(doc, n = 48) {
+  const pts = [];
+  for (let i = 0; i < doc.segments.length; i++) { const s = sampleSegment(doc.segments[i].kind, doc.points[i], doc.points[i + 1], doc.segments[i], n); pts.push(...(i ? s.slice(1) : s)); }
+  return pts;
+}
+
+// Lookup table: N + 1 entries over x in [0, 1]. Each bin holds the curve's value at its own x;
+// at a vertical step the bin keeps the value before the step (the next bin starts after it).
+function buildLUT(doc, N = 1024) {
+  const s = sampleProfile(doc, 64); const lut = new Float32Array(N + 1);
+  lut.fill(clamp01(s[0].y));
+  for (let i = 1; i < s.length; i++) {
+    const a = s[i - 1], b = s[i]; const x0 = clamp01(a.x), x1 = clamp01(b.x);
+    const i0 = Math.round(x0 * N), i1 = Math.round(x1 * N);
+    if (i1 <= i0) continue;
+    for (let k = i0 + 1; k <= i1; k++) { const t = (k / N - x0) / (x1 - x0); lut[k] = clamp01(a.y + (b.y - a.y) * t); }
+  }
+  return lut;
+}
+function lutAt(lut, x) { const N = lut.length - 1; const f = clamp01(x) * N; const i = Math.floor(f); if (i >= N) return lut[N]; const t = f - i; return lut[i] + (lut[i + 1] - lut[i]) * t; }
+
+function profileKey(doc) { return JSON.stringify([doc.points, doc.segments]); }
+// Cached LUT for a document (recomputed when its points/segments change).
+function profileLUT(doc) { const key = profileKey(doc); if (doc._lut && doc._lutKey === key) return doc._lut; doc._lutKey = key; doc._lut = buildLUT(doc); return doc._lut; }
+function resolveProfile(id, store) { return (store && store.profiles && store.profiles[id]) || BUILTIN_PROFILES[id] || BUILTIN_PROFILES.flat; }
+
+Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get PROFILE_FORMAT() { return PROFILE_FORMAT; }, get SEGMENT_KINDS() { return SEGMENT_KINDS; }, get BUILTIN_PROFILES() { return BUILTIN_PROFILES; }, get newProfile() { return newProfile; }, get validateProfile() { return validateProfile; }, get defaultHandles() { return defaultHandles; }, get sampleSegment() { return sampleSegment; }, get sampleProfile() { return sampleProfile; }, get buildLUT() { return buildLUT; }, get lutAt() { return lutAt; }, get profileKey() { return profileKey; }, get profileLUT() { return profileLUT; }, get resolveProfile() { return resolveProfile; } }));
+});
 __define('./engine/raster.js', function (__exports) {
 // Raster: the unit of depth data. Height is normalized (0 = farthest, 1 = nearest);
 // coverage is 0..1 (antialiased edges are fractional). Rasters sit in a coordinate
@@ -1788,6 +1893,7 @@ Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get create
 __define('./engine/sdf.js', function (__exports) {
 // Signed-distance primitives (positive inside, in local units) and shape rasterization.
 const { createRaster } = __require('./engine/raster.js');
+const { lutAt } = __require('./engine/profile.js');
 function ellipseDist(u, v, a, b) {
   if (a <= 0 || b <= 0) return -1e9;
   const r = Math.sqrt(u * u / (a * a) + v * v / (b * b));
@@ -1800,20 +1906,17 @@ function rectDist(u, v, a, b, rc) {
   const ox = Math.max(qx, 0), oy = Math.max(qy, 0);
   return -(Math.hypot(ox, oy) + Math.min(Math.max(qx, qy), 0) - rc);
 }
-// Distance for a rect/ellipse of size w x h with optional inner ratio (ring/frame) and corner radius.
-function shapeDist(shape, w, h, inner, corner, u, v) {
+// Distances for a rect/ellipse of size w x h with optional inner ratio (ring/frame) and corner radius:
+// [distance inside the outer edge, distance inside the ring from the inner edge (Infinity when solid)].
+function shapeDists(shape, w, h, inner, corner, u, v) {
   const a = w / 2, b = h / 2;
-  let d;
-  if (shape === 'ellipse') {
-    d = ellipseDist(u, v, a, b);
-    if (inner > 0) d = Math.min(d, -ellipseDist(u, v, a * inner, b * inner));
-  } else {
-    const rc = Math.min(Math.max(corner, 0), a, b);
-    d = rectDist(u, v, a, b, rc);
-    if (inner > 0) d = Math.min(d, -rectDist(u, v, a * inner, b * inner, rc * inner));
-  }
-  return d;
+  if (shape === 'ellipse') return [ellipseDist(u, v, a, b), inner > 0 ? -ellipseDist(u, v, a * inner, b * inner) : Infinity];
+  const rc = Math.min(Math.max(corner, 0), a, b);
+  return [rectDist(u, v, a, b, rc), inner > 0 ? -rectDist(u, v, a * inner, b * inner, rc * inner) : Infinity];
 }
+function shapeDist(shape, w, h, inner, corner, u, v) { const [o, i] = shapeDists(shape, w, h, inner, corner, u, v); return Math.min(o, i); }
+// Half of the band available to a profile: the half-thickness of a ring, or the half-size of a solid shape.
+function shapeHalfBand(w, h, inner) { const m = Math.min(w, h) / 2; return Math.max(1e-6, inner > 0 ? m * (1 - inner) / 2 : m); }
 
 const PROFILES = { flat: 'Flat', linear: 'Linear (cone)', dome: 'Dome (round)', scallop: 'Scallop (cove)', cosine: 'Smooth (cosine)', bevel: 'Bevel (px)' };
 
@@ -1830,31 +1933,40 @@ function profileT(profile, dist, dmax, bevel) {
 const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
 
 // Rasterize a shape into a local raster of cw x ch pixels covering w x h local units.
-// p: {shape, w, h, inner, corner, profile, bevel, low, high}; low/high are normalized heights.
+// p: {shape, w, h, inner, corner, low, high, outer: {lut, width}, innerEdge: {lut, width}}
+//   outer / innerEdge: profile lookup tables (see profile.js) and band widths in local px.
+//   Legacy form: {profile, bevel} (named profile over the whole half band) is still accepted.
 // When coverageOnly is true only coverage is written (masks).
 function renderShape(p, cw, ch, coverageOnly = false) {
   const r = createRaster(cw, ch);
   const ps = cw / p.w; // pixels per local unit (assumed isotropic enough for antialiasing)
-  const a = p.w / 2, b = p.h / 2;
-  const dmax = Math.max(1e-6, p.inner > 0 ? Math.min(a, b) * (1 - p.inner) / 2 : Math.min(a, b));
+  const a = p.w / 2, b = p.h / 2, inner = p.inner || 0;
   const low = p.low ?? 0, span = (p.high ?? 1) - low;
   const H = r.height, C = r.coverage;
+  const legacy = !p.outer; const dmax = shapeHalfBand(p.w, p.h, inner);
+  const oLut = p.outer && p.outer.lut, oW = p.outer ? Math.max(1e-6, p.outer.width) : 1;
+  const iLut = inner > 0 && p.innerEdge && p.innerEdge.lut, iW = p.innerEdge ? Math.max(1e-6, p.innerEdge.width) : 1;
   for (let j = 0; j < ch; j++) {
     const v = (j + 0.5) / ch * p.h - b;
     for (let i = 0; i < cw; i++) {
       const u = (i + 0.5) / cw * p.w - a;
-      const dist = shapeDist(p.shape, p.w, p.h, p.inner || 0, p.corner || 0, u, v);
+      const [dO, dI] = shapeDists(p.shape, p.w, p.h, inner, p.corner || 0, u, v);
+      const dist = dO < dI ? dO : dI;
       const alpha = clamp01(dist * ps + 0.5);
       if (alpha <= 0) continue;
       const k = j * cw + i;
       C[k] = alpha;
-      if (!coverageOnly) H[k] = low + profileT(p.profile, dist, dmax, p.bevel) * span;
+      if (coverageOnly) continue;
+      let t;
+      if (legacy) t = profileT(p.profile, dist, dmax, p.bevel);
+      else { t = lutAt(oLut, 1 - clamp01(dO / oW)); if (iLut) { const ti = lutAt(iLut, 1 - clamp01(dI / iW)); if (ti < t) t = ti; } }
+      H[k] = low + t * span;
     }
   }
   return r;
 }
 
-Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get ellipseDist() { return ellipseDist; }, get rectDist() { return rectDist; }, get shapeDist() { return shapeDist; }, get PROFILES() { return PROFILES; }, get profileT() { return profileT; }, get renderShape() { return renderShape; } }));
+Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get ellipseDist() { return ellipseDist; }, get rectDist() { return rectDist; }, get shapeDists() { return shapeDists; }, get shapeDist() { return shapeDist; }, get shapeHalfBand() { return shapeHalfBand; }, get PROFILES() { return PROFILES; }, get profileT() { return profileT; }, get renderShape() { return renderShape; } }));
 });
 __define('./engine/toolkit.js', function (__exports) {
 // Helper library available to extension tools as `lib`. Written as one self-contained
@@ -2122,7 +2234,8 @@ Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({  }));
 });
 __define('./kinds/shape.js', function (__exports) {
 const { registerKind } = __require('./engine/kinds.js');
-const { renderShape, PROFILES } = __require('./engine/sdf.js');
+const { renderShape, PROFILES, shapeHalfBand } = __require('./engine/sdf.js');
+const { resolveProfile, profileLUT, profileKey } = __require('./engine/profile.js');
 registerKind({
   kind: 'shape', label: 'Shape', icon: '▭', sizeInParams: true,
   schema: {
@@ -2131,20 +2244,38 @@ registerKind({
     h: { type: 'number', label: 'Height', default: 400, min: 1, hidden: true },
     inner: { type: 'number', label: 'Inner (ring) %', default: 0, min: 0, max: 99, step: 0.5, slider: true, scale: 100 },
     corner: { type: 'number', label: 'Corner radius', default: 0, min: 0, max: 2000, step: 1, slider: true, showIf: p => p.shape === 'rect' },
-    profile: { type: 'enum', label: 'Profile', default: 'flat', options: PROFILES },
-    bevel: { type: 'number', label: 'Bevel width (px)', default: 50, min: 1, max: 2000, step: 1, slider: true, showIf: p => p.profile === 'bevel' },
+    outerProfile: { type: 'profile', label: 'Edge profile', default: 'flat' },
+    outerWidth: { type: 'number', label: 'Edge width (px)', default: 200, min: 1, max: 4000, step: 1, slider: true },
+    innerProfile: { type: 'profile', label: 'Inner edge profile', default: 'flat', showIf: p => p.inner > 0 },
+    innerWidth: { type: 'number', label: 'Inner edge width (px)', default: 200, min: 1, max: 4000, step: 1, slider: true, showIf: p => p.inner > 0 },
     low: { type: 'depth', label: 'Low value', default: 0 },
     high: { type: 'depth', label: 'High value', default: 1 },
   },
-  hint: 'Profile shapes the height from the edge (Low) to the middle (High). Dome is convex (a ring with Dome is a torus), Scallop is the concave inverse (a cove), Bevel ramps over a fixed number of pixels.',
-  init(n, doc) { const s = Math.round(Math.min(doc.w, doc.h) * 0.5); n.params.w = s; n.params.h = s; n.params.bevel = Math.round(s * 0.1); },
+  hint: 'The edge profile shapes the height from the edge (Low) inward over the edge width; beyond it the shape is flat at High. Rings and frames have a second profile on the inner edge; where both bands overlap the lower one wins. Edit a profile to build your own from lines, domes, coves and curves.',
+  init(n, doc) { const s = Math.round(Math.min(doc.w, doc.h) * 0.5); n.params.w = s; n.params.h = s; n.params.outerWidth = Math.round(s / 2); n.params.innerWidth = Math.round(s / 2); },
+  // Older documents: a single named profile (and bevel width) over the whole half band.
+  migrate(p) {
+    if (p.profile === undefined && p.bevel === undefined) return;
+    const half = shapeHalfBand(p.w || 400, p.h || 400, p.inner || 0);
+    const prof = p.profile || 'flat';
+    const id = prof === 'bevel' ? 'linear' : prof; const width = prof === 'bevel' ? (p.bevel || half) : half;
+    if (p.outerProfile === undefined) { p.outerProfile = id; p.outerWidth = Math.round(width * 100) / 100; }
+    if (p.innerProfile === undefined) { p.innerProfile = id; p.innerWidth = Math.round(width * 100) / 100; }
+    delete p.profile; delete p.bevel;
+  },
   measure(n) { return { w: n.params.w, h: n.params.h }; },
-  render(n, { cw, ch }) { const p = n.params; return renderShape({ shape: p.shape, w: p.w, h: p.h, inner: p.inner, corner: p.corner, profile: p.profile, bevel: p.bevel, low: p.low, high: p.high }, cw, ch); },
+  cacheKey(n, ctx) { const p = n.params; return JSON.stringify(p) + '|' + profileKey(resolveProfile(p.outerProfile, ctx.assets)) + (p.inner > 0 ? '|' + profileKey(resolveProfile(p.innerProfile, ctx.assets)) : ''); },
+  render(n, { cw, ch, ctx }) {
+    const p = n.params; const store = ctx.assets;
+    const outer = { lut: profileLUT(resolveProfile(p.outerProfile, store)), width: p.outerWidth };
+    const innerEdge = p.inner > 0 ? { lut: profileLUT(resolveProfile(p.innerProfile, store)), width: p.innerWidth } : null;
+    return renderShape({ shape: p.shape, w: p.w, h: p.h, inner: p.inner, corner: p.corner, low: p.low, high: p.high, outer, innerEdge }, cw, ch);
+  },
 });
 
 // Convenience presets used by the toolbar
-function ringPreset(n) { n.name = 'Ring'; Object.assign(n.params, { shape: 'ellipse', inner: 0.8, profile: 'dome' }); return n; }
-function rectPreset(n) { n.name = 'Rect'; Object.assign(n.params, { shape: 'rect', inner: 0, profile: 'flat' }); return n; }
+function ringPreset(n) { n.name = 'Ring'; const band = Math.round(shapeHalfBand(n.params.w, n.params.h, 0.8)); Object.assign(n.params, { shape: 'ellipse', inner: 0.8, outerProfile: 'dome', innerProfile: 'dome', outerWidth: band, innerWidth: band }); return n; }
+function rectPreset(n) { n.name = 'Rect'; Object.assign(n.params, { shape: 'rect', inner: 0, outerProfile: 'flat' }); return n; }
 
 Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get ringPreset() { return ringPreset; }, get rectPreset() { return rectPreset; } }));
 });
@@ -2469,7 +2600,7 @@ function documentSummary() {
 }
 
 const SYSTEM = () => `You are the assistant inside DepthCAD, a browser app that builds grayscale depth maps for laser engraving by compositing layers.
-Conventions: depth values are normalized floats 0..1 (0 = deepest/farthest, 1 = highest); the user sees them as ${UNITS[state.doc.unit]}. Coordinates are document pixels, origin top-left, y down; every layer has a centre (x, y), scale (sx, sy), rotation in degrees, a blend mode (max = union, min = clamp, replace, cut = erase below inside, keep = erase below outside), and a modifier stack (levels, curve, clamp, feather, blur, offset). Layers composite bottom to top with per-pixel max. Groups contain layers; a mask node clips the siblings above it inside its group. Shapes and masks store their size in params.w/params.h; images and text use sx/sy.
+Conventions: depth values are normalized floats 0..1 (0 = deepest/farthest, 1 = highest); the user sees them as ${UNITS[state.doc.unit]}. Coordinates are document pixels, origin top-left, y down; every layer has a centre (x, y), scale (sx, sy), rotation in degrees, a blend mode (max = union, min = clamp, replace, cut = erase below inside, keep = erase below outside), and a modifier stack (levels, curve, clamp, feather, blur, offset). Layers composite bottom to top with per-pixel max. Groups contain layers; a mask node clips the siblings above it inside its group. Shapes and masks store their size in params.w/params.h; images and text use sx/sy. A shape's edge is shaped by outerProfile (an id: flat, linear, dome, scallop, cosine, ogee, ledge, fluted, steps, or a custom profile in the project) over outerWidth px measured inward from the edge; rings/frames (inner > 0) also have innerProfile/innerWidth on the hole edge.
 You act through tools: call get_document first to see the current state, then run_commands to change it. Batch several commands in one run_commands call. Report ids returned by add/group so you can refer to them. Use sample_values to verify heights at points when it matters.
 When the user wants geometry the built-in kinds cannot express (patterns, repeated shapes, procedural textures, text on paths), write an extension tool with create_tool: a JSON document {format:"depthcad-tool/1", id, name, version, description, schema, measure, render}. schema maps parameter names to {type: number|int|bool|enum|depth|text|string, label, default, min, max, step, slider, options}. measure is a JS function body (p, lib) returning {w, h} in local px. render is a JS function body (p, r, lib): r = {w, h, height, coverage, scale, nat} is the raster to fill (height and coverage are Float32Array 0..1, local coords are centred at 0,0, scale = pixels per local unit). Prefer lib.each((u, v) => value) which sets each pixel from local coords: return a height, or [height, coverage], or null. lib has sdf.{circle, ellipse, box, ring, segment, polygon, star, union, intersect, subtract, rotate} (signed distance, positive inside), aa(d) for antialiased coverage, profile(kind, d, dmax) for flat|linear|dome|scallop|cosine|bevel, noise2/fbm, clamp/mix/smoothstep, add(x, y, h, c) for union-compositing pixels, and canvas()/fromCanvas(ctx, height) for drawing text or paths with Canvas 2D in local units. create_tool test-renders the tool and returns errors; fix them and retry. After creating a tool, add a layer that uses it with run_commands (kind "tool:<id>") and position it.
 Keep replies brief: say what you did and what the user can adjust.`;
@@ -3190,6 +3321,150 @@ function openMeshImport({ meshId, nodeId = null }) {
 
 Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get defaultBakeParams() { return defaultBakeParams; }, get openMeshImport() { return openMeshImport; } }));
 });
+__define('./ui/profileEditor.js', function (__exports) {
+// Edge profile picker and editor. Profiles are documents (engine/profile.js); custom ones
+// live in the project, in the user's library (IndexedDB) and as .profile.json files.
+const { state } = __require('./app/state.js');
+const { commit } = __require('./app/history.js');
+const { clearCaches, invalidate } = __require('./app/render.js');
+const { idb } = __require('./app/io.js');
+const { BUILTIN_PROFILES, SEGMENT_KINDS, newProfile, validateProfile, sampleSegment, sampleProfile, defaultHandles, profileKey } = __require('./engine/profile.js');
+const { openModal, closeModal } = __require('./ui/dialogs.js');
+const { $, el, btn, setMsg, downloadBlob, readAsText } = __require('./ui/dom.js');
+const { clamp, clamp01, deepClone } = __require('./engine/util.js');
+let library = {};
+async function loadProfileLibrary() { try { library = (await idb.get('profiles')) || {}; } catch (e) { library = {}; } }
+async function saveLibrary() { try { await idb.set('profiles', library); } catch (e) { } }
+function libraryProfiles() { return library; }
+function strip(doc) { return JSON.parse(JSON.stringify(doc, (k, v) => k.startsWith('_') ? undefined : v)); }
+
+function allProfileGroups() {
+  const builtin = Object.values(BUILTIN_PROFILES).filter(p => !p.example), examples = Object.values(BUILTIN_PROFILES).filter(p => p.example);
+  return [['Built-in', builtin], ['In this project', Object.values(state.profiles)], ['My profiles', Object.values(library).filter(p => !state.profiles[p.id])], ['Examples', examples]];
+}
+function installProfile(doc, { toLibrary = false } = {}) {
+  const errors = validateProfile(doc); if (errors.length) throw new Error(errors.join('; '));
+  state.profiles[doc.id] = doc; if (toLibrary) { library[doc.id] = strip(doc); saveLibrary(); }
+  clearCaches(); return doc;
+}
+function exportProfile(doc) { downloadBlob(new Blob([JSON.stringify(strip(doc), null, 2)], { type: 'application/json' }), doc.id + '.profile.json'); }
+
+// Picker control for the properties panel: get() -> id, set(id, transient)
+function profilePicker(get, set, tracked) {
+  const wrap = el('div', 'row'); const s = document.createElement('select'); s.style.flex = '1';
+  const fill = () => {
+    s.innerHTML = '';
+    for (const [title, list] of allProfileGroups()) { if (!list.length) continue; const g = document.createElement('optgroup'); g.label = title; for (const p of list) { const o = el('option', null, p.name); o.value = p.id; g.appendChild(o); } s.appendChild(g); }
+    const o = el('option', null, 'New profile…'); o.value = '__new'; s.appendChild(o);
+    const o2 = el('option', null, 'Import profile file…'); o2.value = '__import'; s.appendChild(o2);
+    s.value = get(); if (s.value !== get()) { s.value = 'flat'; }
+  };
+  fill();
+  s.addEventListener('change', () => {
+    if (s.value === '__new') { fill(); openProfileEditor(newProfile('My profile', BUILTIN_PROFILES[get()] || BUILTIN_PROFILES.dome), { onApply: d => { set(d.id, false); }, live: d => { installProfile(d); set(d.id, true); } }); return; }
+    if (s.value === '__import') { fill(); importProfileFile().then(d => { if (d) set(d.id, false); }); return; }
+    const id = s.value; if (library[id] && !state.profiles[id] && !BUILTIN_PROFILES[id]) installProfile(deepClone(library[id]));
+    set(id, false);
+  });
+  const edit = btn('Edit…', () => { const cur = state.profiles[get()] || BUILTIN_PROFILES[get()]; if (!cur) return;
+    if (cur.builtin) { const d = newProfile(cur.name + ' copy', cur); openProfileEditor(d, { onApply: dd => set(dd.id, false), live: dd => { installProfile(dd); set(dd.id, true); } }); }
+    else openProfileEditor(cur, { onApply: () => { clearCaches(); set(cur.id, false); }, live: () => { clearCaches(); set(cur.id, true); } }); }, 'small', 'Edit this profile (a built-in one is copied first)');
+  wrap.append(s, edit); if (tracked) tracked.push([s, get]);
+  return wrap;
+}
+async function importProfileFile() {
+  return new Promise(resolve => {
+    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json';
+    inp.addEventListener('change', async () => { try { const d = JSON.parse(await readAsText(inp.files[0])); installProfile(d, { toLibrary: true }); setMsg(`Profile "${d.name}" imported`); resolve(d); } catch (e) { alert('Could not import profile: ' + e.message); resolve(null); } });
+    inp.click();
+  });
+}
+
+// ---------------------------------------------------------------- editor
+const W = 560, H = 340, PAD = 30;
+function openProfileEditor(doc, { onApply = null, live = null } = {}) {
+  const original = strip(doc); let selSeg = 0, selPt = -1, drag = null;
+  const wrap = el('div', 'profwrap');
+  const left = el('div', 'mcol'); const right = el('div', 'mcol'); right.style.flex = '0 0 250px';
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H; cv.className = 'profcv'; left.appendChild(cv);
+  left.appendChild(el('div', 'hint', 'Left = inside of the shape (full height), right = edge. Drag points and handles; click a segment to select it and change its kind; double-click a segment to split it. Shift snaps to the grid.'));
+  const nameIn = document.createElement('input'); nameIn.type = 'text'; nameIn.value = doc.name; nameIn.style.width = '100%'; nameIn.addEventListener('input', () => { doc.name = nameIn.value; });
+  right.append(el('label', null, 'Name'), nameIn);
+  right.appendChild(el('label', null, 'Selected segment'));
+  const kindRow = el('div', 'btnrow'); const kindBtns = {};
+  for (const [k, l] of Object.entries(SEGMENT_KINDS)) { const b = btn(l, () => { const s = doc.segments[selSeg]; if (!s) return; s.kind = k; if (k === 'bezier' && !s.c1) Object.assign(s, defaultHandles(doc.points[selSeg], doc.points[selSeg + 1])); changed(); }); kindBtns[k] = b; kindRow.appendChild(b); }
+  right.appendChild(kindRow);
+  const opRow = el('div', 'btnrow');
+  opRow.append(btn('Split segment', () => splitSegment(selSeg)), btn('Delete point', () => deletePoint(selPt >= 0 ? selPt : selSeg + 1), 'small danger'), btn('Reset to line', () => { const a = doc.points[0], b = doc.points[doc.points.length - 1]; doc.points = [a, b]; doc.segments = [{ kind: 'line' }]; selSeg = 0; selPt = -1; changed(); }));
+  right.appendChild(opRow);
+  right.appendChild(el('label', null, 'Start from'));
+  const presetRow = el('div', 'btnrow');
+  for (const p of Object.values(BUILTIN_PROFILES)) presetRow.appendChild(btn(p.name, () => { doc.points = p.points.map(q => ({ ...q })); doc.segments = p.segments.map(s => ({ ...s })); selSeg = 0; selPt = -1; changed(); }));
+  right.appendChild(presetRow);
+  const ioRow = el('div', 'btnrow'); ioRow.append(btn('Export file', () => exportProfile(doc)), btn('Import file', async () => { const d = await importProfileFile(); if (d) { doc.points = d.points; doc.segments = d.segments; doc.name = d.name; nameIn.value = d.name; changed(); } }));
+  right.appendChild(ioRow);
+  const libChk = document.createElement('input'); libChk.type = 'checkbox'; libChk.checked = true; const ll = el('label', 'wide'); ll.append(libChk, ' Also save to my profiles'); right.appendChild(ll);
+  const status = el('div', 'hint'); right.appendChild(status);
+  wrap.append(left, right);
+  openModal('Edge profile', wrap, [
+    btn('Cancel', () => { Object.assign(doc, original); closeModal(); if (live) live(doc); }, ''),
+    btn('Save', () => { const errs = validateProfile(doc); if (errs.length) { status.textContent = errs.join('; '); return; } installProfile(doc, { toLibrary: libChk.checked }); closeModal(); if (onApply) onApply(doc); commit(); setMsg(`Profile "${doc.name}" saved`); }, 'primary'),
+  ], () => $('#modalBox').classList.remove('wide'));
+  $('#modalBox').classList.add('wide');
+
+  const toPx = p => ({ x: PAD + p.x * (W - 2 * PAD), y: PAD + (1 - p.y) * (H - 2 * PAD) });
+  const fromPx = (x, y) => ({ x: clamp01((x - PAD) / (W - 2 * PAD)), y: clamp01(1 - (y - PAD) / (H - 2 * PAD)) });
+  function changed() { doc._lut = null; draw(); if (live) live(doc); }
+  function splitSegment(i) {
+    const s = doc.segments[i]; if (!s) return; const a = doc.points[i], b = doc.points[i + 1];
+    const mid = sampleSegment(s.kind, a, b, s, 16)[8] || { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    doc.points.splice(i + 1, 0, { x: mid.x, y: mid.y }); const k = s.kind === 'bezier' ? 'line' : s.kind;
+    doc.segments.splice(i, 1, { kind: k }, { kind: k }); selSeg = i + 1; selPt = i + 1; changed();
+  }
+  function deletePoint(i) { if (i <= 0 || i >= doc.points.length - 1) return; doc.points.splice(i, 1); const k = doc.segments[i - 1].kind; doc.segments.splice(i - 1, 2, { kind: k === 'bezier' ? 'line' : k }); selSeg = Math.max(0, i - 1); selPt = -1; changed(); }
+  function draw() {
+    const c = cv.getContext('2d'); c.clearRect(0, 0, W, H); c.fillStyle = '#17181b'; c.fillRect(0, 0, W, H);
+    c.strokeStyle = '#2c2d32'; c.lineWidth = 1;
+    for (let i = 0; i <= 10; i++) { const x = PAD + i * (W - 2 * PAD) / 10, y = PAD + i * (H - 2 * PAD) / 10; c.beginPath(); c.moveTo(x, PAD); c.lineTo(x, H - PAD); c.stroke(); c.beginPath(); c.moveTo(PAD, y); c.lineTo(W - PAD, y); c.stroke(); }
+    c.strokeStyle = '#555'; c.strokeRect(PAD + 0.5, PAD + 0.5, W - 2 * PAD, H - 2 * PAD);
+    c.fillStyle = '#8f9096'; c.font = '11px sans-serif'; c.fillText('inside', PAD, H - 10); c.textAlign = 'right'; c.fillText('edge', W - PAD, H - 10); c.textAlign = 'left'; c.fillText('high', 4, PAD + 4); c.fillText('low', 4, H - PAD + 4);
+    // cross-section fill
+    const s = sampleProfile(doc, 48); c.beginPath(); c.moveTo(PAD, H - PAD); for (const p of s) { const q = toPx(p); c.lineTo(q.x, q.y); } c.lineTo(W - PAD, H - PAD); c.closePath(); c.fillStyle = 'rgba(120,130,150,.22)'; c.fill();
+    // segments
+    for (let i = 0; i < doc.segments.length; i++) {
+      const seg = doc.segments[i]; const pts = sampleSegment(seg.kind, doc.points[i], doc.points[i + 1], seg, 48);
+      c.beginPath(); pts.forEach((p, k) => { const q = toPx(p); k ? c.lineTo(q.x, q.y) : c.moveTo(q.x, q.y); }); c.strokeStyle = i === selSeg ? '#ffb347' : '#4c9aff'; c.lineWidth = i === selSeg ? 3 : 2; c.stroke();
+      if (seg.kind === 'bezier') { const h = seg.c1 ? seg : defaultHandles(doc.points[i], doc.points[i + 1]); const a = toPx(doc.points[i]), b = toPx(doc.points[i + 1]), c1 = toPx(h.c1), c2 = toPx(h.c2); c.setLineDash([3, 3]); c.strokeStyle = '#8fd18f'; c.lineWidth = 1; c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(c1.x, c1.y); c.moveTo(b.x, b.y); c.lineTo(c2.x, c2.y); c.stroke(); c.setLineDash([]); c.fillStyle = '#8fd18f'; c.fillRect(c1.x - 4, c1.y - 4, 8, 8); c.fillRect(c2.x - 4, c2.y - 4, 8, 8); }
+    }
+    doc.points.forEach((p, i) => { const q = toPx(p); c.beginPath(); c.arc(q.x, q.y, 6, 0, Math.PI * 2); c.fillStyle = i === selPt ? '#ffb347' : '#fff'; c.fill(); c.strokeStyle = '#333'; c.lineWidth = 1; c.stroke(); });
+    for (const [k, b] of Object.entries(kindBtns)) b.classList.toggle('primary', doc.segments[selSeg] && doc.segments[selSeg].kind === k);
+  }
+  const pos = e => { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height }; };
+  function hitPoint(m) { for (let i = doc.points.length - 1; i >= 0; i--) { const q = toPx(doc.points[i]); if (Math.hypot(q.x - m.x, q.y - m.y) < 9) return i; } return -1; }
+  function hitHandle(m) { for (let i = 0; i < doc.segments.length; i++) { const s = doc.segments[i]; if (s.kind !== 'bezier') continue; if (!s.c1) Object.assign(s, defaultHandles(doc.points[i], doc.points[i + 1])); for (const key of ['c1', 'c2']) { const q = toPx(s[key]); if (Math.abs(q.x - m.x) < 7 && Math.abs(q.y - m.y) < 7) return { i, key }; } } return null; }
+  function hitSegment(m) { let best = -1, bd = 8; for (let i = 0; i < doc.segments.length; i++) { const pts = sampleSegment(doc.segments[i].kind, doc.points[i], doc.points[i + 1], doc.segments[i], 32).map(toPx); for (let k = 1; k < pts.length; k++) { const d = distToSeg(m, pts[k - 1], pts[k]); if (d < bd) { bd = d; best = i; } } } return best; }
+  function distToSeg(m, a, b) { const dx = b.x - a.x, dy = b.y - a.y; const t = clamp01(((m.x - a.x) * dx + (m.y - a.y) * dy) / ((dx * dx + dy * dy) || 1e-9)); return Math.hypot(m.x - a.x - dx * t, m.y - a.y - dy * t); }
+  cv.addEventListener('pointerdown', e => {
+    cv.setPointerCapture(e.pointerId); const m = pos(e);
+    const pi = hitPoint(m); if (pi >= 0) { selPt = pi; selSeg = Math.min(pi, doc.segments.length - 1); drag = { kind: 'point', i: pi }; draw(); return; }
+    const hh = hitHandle(m); if (hh) { selSeg = hh.i; selPt = -1; drag = { kind: 'handle', ...hh }; draw(); return; }
+    const si = hitSegment(m); if (si >= 0) { selSeg = si; selPt = -1; draw(); }
+  });
+  cv.addEventListener('pointermove', e => {
+    if (!drag) return; const m = pos(e); let p = fromPx(m.x, m.y);
+    if (e.shiftKey) p = { x: Math.round(p.x * 20) / 20, y: Math.round(p.y * 20) / 20 };
+    if (drag.kind === 'point') { const i = drag.i; const pt = doc.points[i]; pt.y = p.y; if (i > 0 && i < doc.points.length - 1) pt.x = clamp(p.x, doc.points[i - 1].x, doc.points[i + 1].x); }
+    else { doc.segments[drag.i][drag.key] = p; }
+    changed();
+  });
+  const end = () => { drag = null; }; cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
+  cv.addEventListener('dblclick', e => { const m = pos(e); const si = hitSegment(m); if (si >= 0) splitSegment(si); });
+  window.addEventListener('keydown', function onKey(e) { if (!$('#modal').classList.contains('on')) { window.removeEventListener('keydown', onKey); return; } if ((e.key === 'Delete' || e.key === 'Backspace') && selPt > 0 && document.activeElement !== nameIn) { e.preventDefault(); deletePoint(selPt); } });
+  draw();
+}
+
+Object.defineProperties(__exports, Object.getOwnPropertyDescriptors({ get loadProfileLibrary() { return loadProfileLibrary; }, get libraryProfiles() { return libraryProfiles; }, get allProfileGroups() { return allProfileGroups; }, get installProfile() { return installProfile; }, get exportProfile() { return exportProfile; }, get profilePicker() { return profilePicker; }, get openProfileEditor() { return openProfileEditor; } }));
+});
 __define('./ui/props.js', function (__exports) {
 // Properties panel, generated from kind and modifier schemas.
 const { state, findNode, selectedNodes, primarySelected, depthToDisplay, displayToDepth, depthStep, depthDecimals, UNITS } = __require('./app/state.js');
@@ -3200,6 +3475,7 @@ const { TEXT_LAYOUTS } = __require('./kinds/text.js');
 const { fontPicker, listInstalledFonts } = __require('./ui/fontpicker.js');
 const { openMeshImport } = __require('./ui/meshImport.js');
 const { toolEditor, exportTool, saveToLibrary } = __require('./ui/tools.js');
+const { profilePicker } = __require('./ui/profileEditor.js');
 const { $, el, btn } = __require('./ui/dom.js');
 const { clamp } = __require('./engine/util.js');
 let root; const tracked = [];
@@ -3251,6 +3527,7 @@ function schemaField(key, s, get, set, params) {
     case 'font': { const r = el('div', 'row'); r.append(el('label', null, label), fontPicker(get, set)); const b = el('div', 'btnrow'); b.append(btn('Load font file…', () => $('#fileFont').click()), btn('List installed fonts', listInstalledFonts)); const w = el('div'); w.append(r, b); return w; }
     case 'layout': { const opts = Object.fromEntries(Object.entries(TEXT_LAYOUTS).map(([k, v]) => [k, v.label || k])); return selectRow(label, () => get().kind, v => set({ ...get(), kind: v }), opts); }
     case 'curve': return curveEditor(label, get, set);
+    case 'profile': { const w = el('div'); w.appendChild(el('label', null, label)); w.appendChild(profilePicker(get, (v, t) => set(v, t), tracked)); return w; }
     default: return row(label, numInput(get, set));
   }
 }
